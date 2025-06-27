@@ -13,7 +13,7 @@ import os
 dynamic_range=int(input('geriye donuk kac ayin ortalmasi goremek istiyorsun?'))
 
 # Load the Excel file
-file_path = '/content/sample_data/sp500_raw_data.xlsx'
+file_path = 'data/sp500_raw_data.xlsx'
 data_df = pd.read_excel(file_path, sheet_name='Sheet1')
 data_df.sort_values(by='date', inplace=True)
 #print(data_df.head(10))
@@ -41,13 +41,12 @@ print(filtered_df[['date','open','Moving_Average','condition']])
 
 
 
+# Save the processed data to a new Excel file
+output_file = 'output/processed_data.xlsx'
+
 # Create the directory if it doesn't exist
 output_dir = os.path.dirname(output_file)  # Get the directory path
 os.makedirs(output_dir, exist_ok=True)    # Create the directory
-
-# Save the processed data to a new Excel file
-
-#output_file = '/content/sample_data/processed_data.xlsx'
 #data_df.to_excel(output_file, index=False)
 
 #print(f"Processed data saved to: {output_file}")
