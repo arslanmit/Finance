@@ -1,0 +1,66 @@
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from finance_cli.analysis import (
+    analyze_dataframe,
+    build_default_output_path,
+    prepare_dataframe,
+    render_filtered_rows,
+)
+from finance_cli.errors import AnalysisError
+
+
+def test_prepare_dataframe_requires_date_and_open() -> None:
+    dataframe = pd.DataFrame({"close": [1, 2, 3]})
+
+    with pytest.raises(AnalysisError, match="date, open"):
+        prepare_dataframe(dataframe, months=2)
+
+
+def test_prepare_dataframe_rejects_invalid_values() -> None:
+    dataframe = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "bad-date"],
+            "open": ["10", "oops"],
+        }
+    )
+
+    with pytest.raises(AnalysisError, match="invalid date"):
+        prepare_dataframe(dataframe, months=1)
+
+
+def test_prepare_dataframe_rejects_invalid_months() -> None:
+    dataframe = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01"],
+            "open": [10, 11],
+        }
+    )
+
+    with pytest.raises(AnalysisError, match="between 1 and 2"):
+        prepare_dataframe(dataframe, months=3)
+
+
+def test_analyze_dataframe_and_render_output() -> None:
+    dataframe = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+            "open": [10, 12, 11],
+        }
+    )
+
+    prepared = prepare_dataframe(dataframe, months=2)
+    analyzed = analyze_dataframe(prepared, months=2)
+    rendered = render_filtered_rows(analyzed)
+
+    assert "Moving_Average" in analyzed.columns
+    assert analyzed["condition"].tolist() == [0, 0, 1]
+    assert "2024-03-01" in rendered
+
+
+def test_build_default_output_path() -> None:
+    path = build_default_output_path(Path("data/example.csv"))
+
+    assert path == Path("output/example_processed.csv")
