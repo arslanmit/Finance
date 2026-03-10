@@ -1,0 +1,42 @@
+{
+  "datasets": [
+    {
+      "id": "default",
+      "label": "Default S&P 500 workbook",
+      "path": "data/sp500_raw_data.xlsx",
+      "sheet": "Sheet1",
+      "refresh": {
+        "provider": "yahoo",
+        "symbol": "500.PA"
+      }
+    },
+    {
+      "id": "amundi_csv",
+      "label": "Amundi CSV sample",
+      "path": "data/LU1681048804.csv",
+      "sheet": null,
+      "refresh": null
+    },
+    {
+      "id": "amundi_xlsx",
+      "label": "Amundi Excel sample",
+      "path": "data/LU1681048804.xlsx",
+      "sheet": "LU1681048804",
+      "refresh": null
+    },
+    {
+      "id": "spy_history",
+      "label": "SPY history workbook",
+      "path": "data/SPDR S&P 500 ETF Trust Ticker SPY.xlsx",
+      "sheet": "Sheet1",
+      "refresh": null
+    },
+    {
+      "id": "raw_recent",
+      "label": "Recent raw workbook",
+      "path": "data/raw_data.xlsx",
+      "sheet": "data",
+      "refresh": null
+    }
+  ]
+}

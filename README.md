@@ -1,23 +1,8 @@
 # Finance Data Analysis Tools
 
-This repository contains a small CLI and notebook for financial time-series analysis. The main workflow calculates a moving average over a dataset, prints the rows where the moving average is above the open price, and saves the processed data to disk.
+This project provides a simple CLI for moving-average analysis on finance datasets. You can choose a ready-made dataset alias, point to your own file, or just run the script and follow the prompts.
 
-## Contents
-
-- `dynamic_range_average.py` - CLI for moving-average analysis over Excel and CSV files
-- `Dynamic_Range_Average.ipynb` - Jupyter notebook for interactive exploration
-- `data/` - Sample datasets used by the CLI and notebook
-
-## Requirements
-
-- Python 3.8+
-- `pandas`
-- `openpyxl` for `.xlsx` support
-- `xlrd` for `.xls` input support
-- `xlwt` for `.xls` output support
-- `jupyter` if you want to use the notebook
-
-## Installation
+## Install
 
 ```bash
 python3 -m pip install -r requirements.txt
@@ -29,99 +14,98 @@ If your system Python is externally managed and the command above fails, use:
 python3 -m pip install --user --break-system-packages -r requirements.txt
 ```
 
-If you want to use the notebook as well, install Jupyter separately:
+## Main Usage
+
+Start with the guided flow:
 
 ```bash
-python3 -m pip install jupyter
+python3 dynamic_range_average.py
 ```
 
-## CLI Usage
-
-The CLI accepts `.csv`, `.xlsx`, and `.xls` inputs.
+Run a configured dataset directly:
 
 ```bash
-python3 dynamic_range_average.py --months <N>
+python3 dynamic_range_average.py --dataset default --months 6
 ```
 
-This reads the default sample input at `data/sp500_raw_data.xlsx`, prints the filtered rows, and writes the full processed dataset to `output/sp500_raw_data_processed.xlsx`. Replace `<N>` with the moving average window you want to analyze.
-
-### Months Examples
-
-Short-term example:
+Run your own file:
 
 ```bash
-python3 dynamic_range_average.py --months 3
+python3 dynamic_range_average.py --file /path/to/data.xlsx --months 12
 ```
 
-Medium-term example:
+Refresh the default live dataset before analysis:
 
 ```bash
-python3 dynamic_range_average.py --months 6
+python3 dynamic_range_average.py --dataset default --months 6 --refresh
 ```
 
-Long-term example:
+## List Available Datasets
 
 ```bash
-python3 dynamic_range_average.py --months 12
+python3 dynamic_range_average.py --list-datasets
 ```
 
-Use a different input file:
+Current datasets are defined in [datasets.json](/Users/Development/Finance/datasets.json).
+
+## Changing The Dataset
+
+Use one of the configured dataset aliases:
+
+- `default`
+- `amundi_csv`
+- `amundi_xlsx`
+- `spy_history`
+- `raw_recent`
+
+Or use your own file:
 
 ```bash
-python3 dynamic_range_average.py --months 6 --input data/LU1681048804.csv
+python3 dynamic_range_average.py --file data/LU1681048804.csv --months 6
 ```
 
-Choose a specific Excel sheet:
+If you use your own Excel file and it has more than one sheet, the script asks you to choose a sheet in interactive mode.
+
+## Adding A New Dataset
+
+Open [datasets.json](/Users/Development/Finance/datasets.json) and add a new entry with:
+
+- `id`
+- `label`
+- `path`
+- `sheet`
+- `refresh`
+
+Example:
+
+```json
+{
+  "id": "my_dataset",
+  "label": "My Excel file",
+  "path": "data/my_file.xlsx",
+  "sheet": "Sheet1",
+  "refresh": null
+}
+```
+
+After saving the file, your new alias will appear in:
 
 ```bash
-python3 dynamic_range_average.py --months 12 --input data/sp500_raw_data.xlsx --sheet Sheet1
+python3 dynamic_range_average.py --list-datasets
 ```
-
-Write to a custom output file:
-
-```bash
-python3 dynamic_range_average.py --months 24 --output output/custom_results.csv
-```
-
-Refresh the default workbook from live `500.PA` monthly data before running the analysis:
-
-```bash
-python3 dynamic_range_average.py --months 6 --refresh
-```
-
-If `--months` is omitted in an interactive terminal, the script prompts for it. In non-interactive runs, `--months` is required.
-
-`--refresh` is only supported for the default workbook at `data/sp500_raw_data.xlsx`. If the live refresh fails, the CLI exits with an error instead of silently falling back to stale local data.
-
-## Input Expectations
-
-Input data must contain at least these columns:
-
-- `date` or `Date`
-- `open`
-
-Additional columns are allowed and are preserved in the saved output. The CLI normalizes column names, parses dates, sorts rows by date, and validates the requested moving-average window against the number of rows in the dataset.
 
 ## Output
 
-Each run produces:
+The script:
 
-- Console output showing rows where `Moving_Average > open`
-- When `--refresh` is used, a refresh summary showing the live symbol, date range, row count, and backup path
-- A saved dataset containing all original rows plus:
-  - `Moving_Average`
-  - `condition`
+- prints the matching rows where `Moving_Average > open`
+- saves the processed dataset to `output/<input_stem>_processed.<input_extension>`
+- keeps the full dataset plus the derived `Moving_Average` and `condition` columns
 
-By default, the output path is `output/<input_stem>_processed.<input_extension>`.
+## Notebook
 
-## Notebook Usage
-
-Start Jupyter and open `Dynamic_Range_Average.ipynb`:
+The notebook is still available if you want interactive exploration:
 
 ```bash
 jupyter notebook
 ```
-
-## License
-
-This project is for educational and analytical purposes.

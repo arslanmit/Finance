@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh the default S&P 500 workbook from Yahoo Finance monthly data."""
+"""Refresh workbook datasets from Yahoo Finance monthly data."""
 
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ REQUEST_HEADERS = {
     "Accept": "application/json,text/plain,*/*",
     "Accept-Language": "en-US,en;q=0.9",
 }
-YAHOO_HISTORY_URL = "https://finance.yahoo.com/quote/500.PA/history/"
 AMUNDI_FACTSHEET_URL = (
     "https://www.amundietf.lu/en/individual/products/equity/"
     "amundi-sp-500-swap-ucits-etf-eur-acc/lu1681048804"
@@ -59,6 +58,10 @@ class RefreshSummary:
 
 def build_chart_url(symbol: str, period1: int, period2: int) -> str:
     return YAHOO_CHART_URL_TEMPLATE.format(symbol=symbol, period1=period1, period2=period2)
+
+
+def build_history_url(symbol: str) -> str:
+    return f"https://finance.yahoo.com/quote/{symbol}/history/"
 
 
 def fetch_monthly_source(symbol: str = DEFAULT_SYMBOL) -> pd.DataFrame:
@@ -115,15 +118,15 @@ def fetch_monthly_source(symbol: str = DEFAULT_SYMBOL) -> pd.DataFrame:
     if monthly.empty:
         raise RefreshError(f"Yahoo Finance returned no monthly rows for {symbol}.")
 
-    numeric_columns = ["open", "high", "low", "close"]
-    monthly[numeric_columns] = monthly[numeric_columns].astype(float).round(2)
+    monthly[["open", "high", "low", "close"]] = monthly[
+        ["open", "high", "low", "close"]
+    ].astype(float).round(2)
     monthly["volume"] = monthly["volume"].fillna(0).round(0).astype(int)
-
     return monthly
 
 
-def load_existing_workbook_data(workbook_path: Path) -> pd.DataFrame:
-    dataframe = pd.read_excel(workbook_path, sheet_name=DEFAULT_SHEET)
+def load_existing_workbook_data(workbook_path: Path, sheet_name: str) -> pd.DataFrame:
+    dataframe = pd.read_excel(workbook_path, sheet_name=sheet_name)
     dataframe.columns = [str(column).strip().lower() for column in dataframe.columns]
     dataframe["date"] = pd.to_datetime(dataframe["date"]).dt.normalize()
     return dataframe
@@ -188,12 +191,12 @@ def find_last_populated_row(worksheet) -> int:
     return last_row
 
 
-def write_workbook_rows(workbook_path: Path, source: pd.DataFrame) -> None:
+def write_workbook_rows(workbook_path: Path, source: pd.DataFrame, sheet_name: str, symbol: str) -> None:
     workbook = load_workbook(workbook_path)
-    if workbook.sheetnames != [DEFAULT_SHEET]:
-        raise RefreshError(f"Unexpected workbook sheets: {workbook.sheetnames}")
+    if sheet_name not in workbook.sheetnames:
+        raise RefreshError(f"Sheet '{sheet_name}' was not found in {workbook_path}.")
 
-    worksheet = workbook[DEFAULT_SHEET]
+    worksheet = workbook[sheet_name]
     headers = [worksheet.cell(row=1, column=index).value for index in range(1, 7)]
     if headers != EXPECTED_HEADERS:
         raise RefreshError(f"Unexpected workbook headers: {headers}")
@@ -233,34 +236,40 @@ def write_workbook_rows(workbook_path: Path, source: pd.DataFrame) -> None:
             cell._style = copy(styles[column_index])
             cell.value = value
 
-    worksheet["A1"].comment = Comment(
-        "Refreshed from Yahoo Finance 500.PA monthly history and the Amundi LU1681048804 factsheet on "
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.\n"
-        f"{YAHOO_HISTORY_URL}\n"
-        f"{AMUNDI_FACTSHEET_URL}\n"
-        "Earliest reliable live month for this series: 2010-06-01.",
-        "Codex",
-    )
+    comment_lines = [
+        f"Refreshed from Yahoo Finance {symbol} monthly history on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.",
+        build_history_url(symbol),
+    ]
+    if symbol == DEFAULT_SYMBOL:
+        comment_lines.append(AMUNDI_FACTSHEET_URL)
+    comment_lines.append("Earliest reliable live month for this series: 2010-06-01.")
+    worksheet["A1"].comment = Comment("\n".join(comment_lines), "Codex")
     workbook.save(workbook_path)
 
 
-def refresh_default_workbook(workbook_path: Path = DEFAULT_WORKBOOK) -> RefreshSummary:
-    if workbook_path != DEFAULT_WORKBOOK:
-        raise RefreshError("Refresh is only supported for the default sp500 workbook.")
+def refresh_yahoo_monthly_workbook(
+    workbook_path: Path,
+    symbol: str = DEFAULT_SYMBOL,
+    sheet_name: str = DEFAULT_SHEET,
+) -> RefreshSummary:
     if not workbook_path.exists():
         raise RefreshError(f"Refresh target does not exist: {workbook_path}")
 
-    existing = load_existing_workbook_data(workbook_path)
-    source = fetch_monthly_source()
+    existing = load_existing_workbook_data(workbook_path, sheet_name)
+    source = fetch_monthly_source(symbol)
     validate_source_contiguity(source)
     validate_overlap(existing, source)
     backup_path = create_backup(workbook_path)
-    write_workbook_rows(workbook_path, source)
+    write_workbook_rows(workbook_path, source, sheet_name, symbol)
 
     return RefreshSummary(
-        symbol=DEFAULT_SYMBOL,
+        symbol=symbol,
         row_count=len(source),
         min_date=source["date"].min().date().isoformat(),
         max_date=source["date"].max().date().isoformat(),
         backup_path=str(backup_path),
     )
+
+
+def refresh_default_workbook(workbook_path: Path = DEFAULT_WORKBOOK) -> RefreshSummary:
+    return refresh_yahoo_monthly_workbook(workbook_path, symbol=DEFAULT_SYMBOL, sheet_name=DEFAULT_SHEET)
