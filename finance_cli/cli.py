@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -14,11 +15,20 @@ from .analysis import (
     render_filtered_rows,
     save_dataframe,
 )
+from .create import create_and_register_symbol_dataset
 from .errors import FinanceCliError
 from .models import DatasetConfig, ResolvedSource
 from .refresh import refresh_selected_source
 from .registry import add_dataset, get_dataset, load_registry, remove_dataset, save_registry
 from .sources import load_dataframe, resolve_custom_source, resolve_dataset_source
+
+
+@dataclass(frozen=True)
+class WizardSourceChoice:
+    """Resolved source choice from the interactive wizard."""
+
+    source: ResolvedSource
+    created_now: bool = False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--refresh-symbol",
         help="Yahoo Finance symbol for live refresh support. Only valid for .xlsx datasets.",
     )
+
+    create_parser = datasets_subparsers.add_parser(
+        "create",
+        help="Create a new dataset from a Yahoo Finance symbol.",
+    )
+    create_parser.add_argument("--symbol", required=True, help="Yahoo Finance symbol, e.g. SPY or AAPL.")
 
     remove_parser = datasets_subparsers.add_parser("remove", help="Remove a registered dataset.")
     remove_parser.add_argument("--id", required=True, help="Dataset id to remove.")
@@ -126,6 +142,13 @@ def handle_datasets_command(args: argparse.Namespace) -> None:
         print(f"Added dataset '{dataset.id}' -> {dataset.path}")
         return
 
+    if args.datasets_command == "create":
+        dataset = create_and_register_symbol_dataset(datasets, args.symbol)
+        print(
+            f"Created dataset '{dataset.id}' from symbol {dataset.refresh.symbol} -> {dataset.path}"
+        )
+        return
+
     if args.datasets_command == "remove":
         removed = remove_dataset(datasets, args.id)
         save_registry(datasets)
@@ -137,11 +160,14 @@ def handle_datasets_command(args: argparse.Namespace) -> None:
 
 def run_wizard() -> None:
     datasets = load_registry()
-    source = prompt_for_source(datasets)
+    selection = prompt_for_source(datasets)
+    source = selection.source
     months = prompt_for_months()
-    refresh_requested = source.dataset is not None and source.dataset.supports_refresh and prompt_yes_no(
-        "Refresh live data first?",
-        default=False,
+    refresh_requested = (
+        not selection.created_now
+        and source.dataset is not None
+        and source.dataset.supports_refresh
+        and prompt_yes_no("Refresh live data first?", default=False)
     )
 
     default_output = build_default_output_path(source.input_path)
@@ -149,13 +175,15 @@ def run_wizard() -> None:
     execute_analysis(source, months=months, output_path=output_path, refresh_requested=refresh_requested)
 
 
-def prompt_for_source(datasets: list[DatasetConfig]) -> ResolvedSource:
+def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
     print("Choose a dataset:\n")
     for index, dataset in enumerate(datasets, start=1):
         refresh_tag = " [refresh available]" if dataset.supports_refresh else ""
         print(f"{index}. {dataset.id} - {dataset.label} ({dataset.file_name}){refresh_tag}")
     custom_index = len(datasets) + 1
+    create_index = len(datasets) + 2
     print(f"{custom_index}. custom - Use your own file path")
+    print(f"{create_index}. create - Create a new dataset from a Yahoo symbol")
 
     while True:
         response = input("\nEnter a dataset number or alias: ").strip()
@@ -165,21 +193,25 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> ResolvedSource:
         if response.isdigit():
             selection = int(response)
             if 1 <= selection <= len(datasets):
-                return resolve_dataset_source(datasets[selection - 1])
+                return WizardSourceChoice(resolve_dataset_source(datasets[selection - 1]))
             if selection == custom_index:
                 return prompt_for_custom_source()
+            if selection == create_index:
+                return prompt_for_symbol_dataset(datasets)
 
         for dataset in datasets:
             if response == dataset.id:
-                return resolve_dataset_source(dataset)
+                return WizardSourceChoice(resolve_dataset_source(dataset))
 
         if response.lower() == "custom":
             return prompt_for_custom_source()
+        if response.lower() == "create":
+            return prompt_for_symbol_dataset(datasets)
 
-        print("Invalid selection. Choose a listed number, dataset alias, or 'custom'.")
+        print("Invalid selection. Choose a listed number, dataset alias, 'custom', or 'create'.")
 
 
-def prompt_for_custom_source() -> ResolvedSource:
+def prompt_for_custom_source() -> WizardSourceChoice:
     while True:
         custom_path = input("Enter the file path: ").strip()
         if not custom_path:
@@ -187,11 +219,30 @@ def prompt_for_custom_source() -> ResolvedSource:
             continue
 
         try:
-            return resolve_custom_source(
-                custom_path,
-                interactive=True,
-                choose_sheet=prompt_for_sheet_choice,
+            return WizardSourceChoice(
+                resolve_custom_source(
+                    custom_path,
+                    interactive=True,
+                    choose_sheet=prompt_for_sheet_choice,
+                )
             )
+        except FinanceCliError as exc:
+            print(f"Error: {exc}")
+
+
+def prompt_for_symbol_dataset(datasets: list[DatasetConfig]) -> WizardSourceChoice:
+    while True:
+        symbol = input("Enter the Yahoo Finance symbol (for example SPY, VOO, AAPL): ").strip()
+        if not symbol:
+            print("Please enter a symbol.")
+            continue
+
+        try:
+            dataset = create_and_register_symbol_dataset(datasets, symbol)
+            print(
+                f"Created dataset '{dataset.id}' from symbol {dataset.refresh.symbol} -> {dataset.path}"
+            )
+            return WizardSourceChoice(resolve_dataset_source(dataset), created_now=True)
         except FinanceCliError as exc:
             print(f"Error: {exc}")
 

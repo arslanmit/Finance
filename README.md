@@ -40,6 +40,14 @@ Refresh a live dataset before analysis:
 python3 dynamic_range_average.py run --dataset default --months 6 --refresh
 ```
 
+Create a new dataset from a Yahoo Finance symbol:
+
+```bash
+python3 dynamic_range_average.py datasets create --symbol SPY
+```
+
+Generated symbol datasets are saved under `data/generated/`.
+
 ## Dataset Commands
 
 List registered datasets:
@@ -60,6 +68,12 @@ Add a refreshable workbook:
 python3 dynamic_range_average.py datasets add --id live_sp500 --label "Live S&P 500" --path data/sp500_raw_data.xlsx --sheet Sheet1 --refresh-symbol 500.PA
 ```
 
+Create and register a new stock or ETF dataset automatically:
+
+```bash
+python3 dynamic_range_average.py datasets create --symbol AAPL
+```
+
 Remove a dataset:
 
 ```bash
@@ -73,6 +87,7 @@ The registry lives in [datasets.json](/Users/Development/Finance/datasets.json).
 The no-argument wizard asks for:
 
 - dataset or custom file
+- or create a new dataset from a Yahoo symbol
 - Excel sheet if a custom workbook has multiple sheets
 - `months`
 - refresh choice for refreshable registered datasets

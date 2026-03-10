@@ -131,6 +131,41 @@ def test_datasets_add_and_remove_commands(tmp_path: Path, monkeypatch, capsys) -
     assert all(dataset.id != "extra" for dataset in load_registry(config_path))
 
 
+def test_datasets_create_command(tmp_path: Path, monkeypatch, capsys) -> None:
+    config_path = tmp_path / "datasets.json"
+    write_registry(config_path, [])
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+
+    def fake_create(datasets, symbol, config_path=None):
+        workbook_path = tmp_path / "data" / "generated" / "spy.xlsx"
+        workbook_path.parent.mkdir(parents=True, exist_ok=True)
+        write_workbook(workbook_path)
+        from finance_cli.models import DatasetConfig, RefreshMetadata
+
+        dataset = DatasetConfig(
+            id="spy",
+            label="Yahoo symbol SPY",
+            path="data/generated/spy.xlsx",
+            sheet="Sheet1",
+            refresh=RefreshMetadata(provider="yahoo", symbol="SPY"),
+            base_dir=tmp_path,
+        )
+        datasets.append(dataset)
+        from finance_cli.registry import save_registry
+
+        save_registry(datasets, config_path=config_path)
+        return dataset
+
+    monkeypatch.setattr("finance_cli.cli.create_and_register_symbol_dataset", fake_create)
+
+    code = main(["datasets", "create", "--symbol", "SPY"])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Created dataset 'spy' from symbol SPY" in output
+    assert any(dataset.id == "spy" for dataset in load_registry(config_path))
+
+
 def test_wizard_happy_path(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     config_path = tmp_path / "datasets.json"
@@ -158,6 +193,44 @@ def test_wizard_happy_path(tmp_path: Path, monkeypatch, capsys) -> None:
     assert code == 0
     assert "Processed data saved to:" in output
     assert (tmp_path / "output" / "sample_processed.xlsx").exists()
+
+
+def test_wizard_create_symbol_and_run(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "datasets.json"
+    write_registry(config_path, [])
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+
+    def fake_create(datasets, symbol, config_path=None):
+        workbook_path = tmp_path / "data" / "generated" / "spy.xlsx"
+        workbook_path.parent.mkdir(parents=True, exist_ok=True)
+        write_workbook(workbook_path)
+        from finance_cli.models import DatasetConfig, RefreshMetadata
+
+        dataset = DatasetConfig(
+            id="spy",
+            label="Yahoo symbol SPY",
+            path="data/generated/spy.xlsx",
+            sheet="Sheet1",
+            refresh=RefreshMetadata(provider="yahoo", symbol="SPY"),
+            base_dir=tmp_path,
+        )
+        datasets.append(dataset)
+        from finance_cli.registry import save_registry
+
+        save_registry(datasets, config_path=config_path)
+        return dataset
+
+    monkeypatch.setattr("finance_cli.cli.create_and_register_symbol_dataset", fake_create)
+    responses = iter(["2", "SPY", "2", ""])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
+
+    code = main([])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Created dataset 'spy' from symbol SPY" in output
+    assert (tmp_path / "output" / "spy_processed.xlsx").exists()
 
 
 def test_run_refresh_rejects_unsupported_dataset(tmp_path: Path, monkeypatch, capsys) -> None:

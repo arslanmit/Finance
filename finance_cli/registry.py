@@ -40,9 +40,6 @@ def load_registry(config_path: Path | None = None) -> list[DatasetConfig]:
         raise RegistryError("datasets.json must contain a top-level 'datasets' list.")
 
     datasets = [parse_dataset_entry(entry, resolved_config.parent) for entry in entries]
-    if not datasets:
-        raise RegistryError("datasets.json does not define any datasets.")
-
     dataset_ids = [dataset.id for dataset in datasets]
     if len(dataset_ids) != len(set(dataset_ids)):
         raise RegistryError("datasets.json contains duplicate dataset ids.")

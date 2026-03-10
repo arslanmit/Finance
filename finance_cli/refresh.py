@@ -23,6 +23,7 @@ DEFAULT_SHEET = "Sheet1"
 DEFAULT_SYMBOL = "500.PA"
 SUPPORTED_REFRESH_PROVIDER = "yahoo"
 EARLIEST_REQUEST_DATE = "2010-01-01"
+FULL_HISTORY_PERIOD1 = 0
 EARLIEST_REAL_MONTH = pd.Timestamp("2010-06-01")
 OVERLAP_MONTHS = ("2024-08-01", "2024-10-01")
 NOVEMBER_OPEN_MONTH = pd.Timestamp("2024-11-01")
@@ -80,10 +81,17 @@ def build_history_url(symbol: str) -> str:
     return f"https://finance.yahoo.com/quote/{symbol}/history/"
 
 
-def fetch_monthly_source(symbol: str = DEFAULT_SYMBOL) -> pd.DataFrame:
-    period1 = int(pd.Timestamp(EARLIEST_REQUEST_DATE).timestamp())
+def fetch_yahoo_monthly_source(
+    symbol: str = DEFAULT_SYMBOL,
+    *,
+    period1: int | None = None,
+    earliest_month: pd.Timestamp | None = EARLIEST_REAL_MONTH,
+) -> pd.DataFrame:
+    effective_period1 = (
+        int(pd.Timestamp(EARLIEST_REQUEST_DATE).timestamp()) if period1 is None else period1
+    )
     period2 = int(time.time())
-    url = build_chart_url(symbol, period1, period2)
+    url = build_chart_url(symbol, effective_period1, period2)
     last_error: Exception | None = None
 
     for attempt in range(3):
@@ -111,25 +119,24 @@ def fetch_monthly_source(symbol: str = DEFAULT_SYMBOL) -> pd.DataFrame:
     if not timestamps or not quote:
         raise RefreshError(f"Yahoo Finance returned incomplete quote data for {symbol}.")
 
+    exchange_timezone = chart.get("meta", {}).get("exchangeTimezoneName") or "UTC"
+
     frame = pd.DataFrame(
         {
             "date": pd.to_datetime(timestamps, unit="s", utc=True)
-            .tz_convert("Europe/Paris")
+            .tz_convert(exchange_timezone)
             .tz_localize(None)
         }
     )
     for column, values in quote[0].items():
         frame[column] = values
 
-    monthly = frame[
-        frame["date"].dt.hour.eq(0)
-        & frame["date"].dt.minute.eq(0)
-        & frame["date"].dt.second.eq(0)
-    ].copy()
-    monthly["date"] = monthly["date"].dt.normalize()
+    monthly = frame.copy()
+    monthly["date"] = monthly["date"].dt.to_period("M").dt.to_timestamp()
     monthly = monthly[["date", "open", "high", "low", "close", "volume"]]
     monthly = monthly.drop_duplicates(subset=["date"]).sort_values("date").reset_index(drop=True)
-    monthly = monthly[monthly["date"] >= EARLIEST_REAL_MONTH].copy()
+    if earliest_month is not None:
+        monthly = monthly[monthly["date"] >= earliest_month].copy()
 
     if monthly.empty:
         raise RefreshError(f"Yahoo Finance returned no monthly rows for {symbol}.")
@@ -139,6 +146,18 @@ def fetch_monthly_source(symbol: str = DEFAULT_SYMBOL) -> pd.DataFrame:
     ].astype(float).round(2)
     monthly["volume"] = monthly["volume"].fillna(0).round(0).astype(int)
     return monthly
+
+
+def fetch_full_history_monthly_source(symbol: str) -> pd.DataFrame:
+    return fetch_yahoo_monthly_source(
+        symbol,
+        period1=FULL_HISTORY_PERIOD1,
+        earliest_month=None,
+    )
+
+
+def fetch_monthly_source(symbol: str = DEFAULT_SYMBOL) -> pd.DataFrame:
+    return fetch_yahoo_monthly_source(symbol)
 
 
 def load_existing_workbook_data(workbook_path: Path, sheet_name: str) -> pd.DataFrame:

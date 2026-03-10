@@ -19,3 +19,7 @@ class AnalysisError(FinanceCliError):
 
 class RefreshError(FinanceCliError):
     """Raised when live dataset refresh fails."""
+
+
+class CreationError(FinanceCliError):
+    """Raised when creating a new dataset from a symbol fails."""
