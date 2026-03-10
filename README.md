@@ -40,30 +40,58 @@ python3 -m pip install jupyter
 The CLI accepts `.csv`, `.xlsx`, and `.xls` inputs.
 
 ```bash
-python3 dynamic_range_average.py --months 10
+python3 dynamic_range_average.py --months <N>
 ```
 
-This reads the default sample input at `data/sp500_raw_data.xlsx`, prints the filtered rows, and writes the full processed dataset to `output/sp500_raw_data_processed.xlsx`.
+This reads the default sample input at `data/sp500_raw_data.xlsx`, prints the filtered rows, and writes the full processed dataset to `output/sp500_raw_data_processed.xlsx`. Replace `<N>` with the moving average window you want to analyze.
+
+### Months Examples
+
+Short-term example:
+
+```bash
+python3 dynamic_range_average.py --months 3
+```
+
+Medium-term example:
+
+```bash
+python3 dynamic_range_average.py --months 6
+```
+
+Long-term example:
+
+```bash
+python3 dynamic_range_average.py --months 12
+```
 
 Use a different input file:
 
 ```bash
-python3 dynamic_range_average.py --months 10 --input data/LU1681048804.csv
+python3 dynamic_range_average.py --months 6 --input data/LU1681048804.csv
 ```
 
 Choose a specific Excel sheet:
 
 ```bash
-python3 dynamic_range_average.py --months 10 --input data/sp500_raw_data.xlsx --sheet Sheet1
+python3 dynamic_range_average.py --months 12 --input data/sp500_raw_data.xlsx --sheet Sheet1
 ```
 
 Write to a custom output file:
 
 ```bash
-python3 dynamic_range_average.py --months 10 --output output/custom_results.csv
+python3 dynamic_range_average.py --months 24 --output output/custom_results.csv
+```
+
+Refresh the default workbook from live `500.PA` monthly data before running the analysis:
+
+```bash
+python3 dynamic_range_average.py --months 6 --refresh
 ```
 
 If `--months` is omitted in an interactive terminal, the script prompts for it. In non-interactive runs, `--months` is required.
+
+`--refresh` is only supported for the default workbook at `data/sp500_raw_data.xlsx`. If the live refresh fails, the CLI exits with an error instead of silently falling back to stale local data.
 
 ## Input Expectations
 
@@ -79,6 +107,7 @@ Additional columns are allowed and are preserved in the saved output. The CLI no
 Each run produces:
 
 - Console output showing rows where `Moving_Average > open`
+- When `--refresh` is used, a refresh summary showing the live symbol, date range, row count, and backup path
 - A saved dataset containing all original rows plus:
   - `Moving_Average`
   - `condition`

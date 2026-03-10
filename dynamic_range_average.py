@@ -8,8 +8,9 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+from refresh_sp500_data import DEFAULT_WORKBOOK, RefreshError, refresh_default_workbook
 
-DEFAULT_INPUT = Path("data/sp500_raw_data.xlsx")
+DEFAULT_INPUT = DEFAULT_WORKBOOK
 DEFAULT_SHEET = "Sheet1"
 DISPLAY_COLUMNS = ["date", "open", "Moving_Average", "condition"]
 SUPPORTED_INPUT_SUFFIXES = {".csv", ".xlsx", ".xls"}
@@ -29,7 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--months",
         type=int,
-        help="Number of rows to use for the moving average window.",
+        help=(
+            "Moving average window size in rows/months. "
+            "Examples: 3, 6, 12, 24. If omitted in an interactive terminal, "
+            "the script prompts for it."
+        ),
     )
     parser.add_argument(
         "--input",
@@ -47,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional output path. If omitted, writes to "
             "output/<input_stem>_processed.<input_extension>."
         ),
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Refresh the default workbook from live 500.PA monthly data before analysis.",
     )
     return parser
 
@@ -237,6 +247,10 @@ def print_filtered_rows(dataframe: pd.DataFrame) -> None:
     print(filtered.to_string(index=False))
 
 
+def is_default_refresh_target(input_path: Path) -> bool:
+    return input_path.resolve(strict=False) == DEFAULT_INPUT.resolve(strict=False)
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -245,6 +259,25 @@ def main() -> int:
         months = resolve_months(args.months)
         input_path = Path(args.input)
         output_path = Path(args.output) if args.output else build_default_output_path(input_path)
+
+        if args.refresh:
+            if not is_default_refresh_target(input_path):
+                raise DataProcessingError(
+                    "--refresh is only supported with the default input file "
+                    f"({DEFAULT_INPUT}). Remove --refresh or use the default input."
+                )
+            try:
+                summary = refresh_default_workbook(DEFAULT_INPUT)
+            except RefreshError as exc:
+                raise DataProcessingError(str(exc)) from exc
+
+            print(
+                "Refresh summary: "
+                f"symbol={summary.symbol}, "
+                f"range={summary.min_date}..{summary.max_date}, "
+                f"rows={summary.row_count}, "
+                f"backup={summary.backup_path}"
+            )
 
         raw_dataframe = load_dataframe(input_path, args.sheet)
         prepared_dataframe = prepare_dataframe(raw_dataframe, months)
