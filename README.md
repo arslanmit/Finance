@@ -1,90 +1,98 @@
 # Finance Data Analysis Tools
 
-This repository contains Python tools and Jupyter notebooks for financial data analysis, with a focus on time series analysis of market data such as the S&P 500. The primary functionality includes dynamic range average calculations and technical analysis.
+This repository contains a small CLI and notebook for financial time-series analysis. The main workflow calculates a moving average over a dataset, prints the rows where the moving average is above the open price, and saves the processed data to disk.
 
-## 📊 Contents
+## Contents
 
-- `dynamic_range_average.py` - Python script for calculating moving averages and analyzing market conditions
-- `Dynamic_Range_Average.ipynb` - Jupyter notebook with interactive analysis and visualization
-- `data/` - Directory containing sample financial datasets
+- `dynamic_range_average.py` - CLI for moving-average analysis over Excel and CSV files
+- `Dynamic_Range_Average.ipynb` - Jupyter notebook for interactive exploration
+- `data/` - Sample datasets used by the CLI and notebook
 
-## 🚀 Features
-
-- Calculate moving averages for any specified time period
-- Analyze market conditions based on price and moving average relationships
-- Process Excel files with financial time series data
-- Generate filtered results showing specific market conditions
-
-## ⚙️ Requirements
+## Requirements
 
 - Python 3.8+
-- pandas
-- openpyxl (for Excel file support)
-- Jupyter Notebook (for the interactive notebook)
+- `pandas`
+- `openpyxl` for `.xlsx` support
+- `xlrd` for `.xls` input support
+- `xlwt` for `.xls` output support
+- `jupyter` if you want to use the notebook
 
-## 🛠 Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/arslanmit/Finance.git
-   cd Finance
-   ```
-
-2. Install the required packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
-   (If you don't have a requirements.txt, install packages individually: `pip install pandas openpyxl jupyter`)
-
-## 📋 Usage
-
-### Using the Python Script
+## Installation
 
 ```bash
-python dynamic_range_average.py
+python3 -m pip install -r requirements.txt
 ```
 
-When prompted, enter the number of months for the moving average calculation.
+If your system Python is externally managed and the command above fails, use:
 
-### Using the Jupyter Notebook
-
-1. Start Jupyter Notebook:
-   ```bash
-   jupyter notebook
-   ```
-2. Open `Dynamic_Range_Average.ipynb`
-3. Follow the instructions in the notebook
-
-## 📂 Data Format
-
-Input Excel/CSV files should contain at least these columns:
-- `date`: Date of the observation
-- `open`: Opening price
-- Other price columns (high, low, close) are optional
-
-## 📊 Example
-
-```python
-# Example of calculating a 10-month moving average
-dynamic_range = 10  # Number of months for the moving average
-
-# The script will:
-# 1. Calculate the moving average for the specified period
-# 2. Identify periods where the price is below the moving average
-# 3. Output the filtered results
+```bash
+python3 -m pip install --user --break-system-packages -r requirements.txt
 ```
 
-## 📝 Output
+If you want to use the notebook as well, install Jupyter separately:
 
-The tool generates:
-- Console output with filtered results
-- Option to save processed data to a new Excel file
-- Visualizations in the Jupyter notebook
+```bash
+python3 -m pip install jupyter
+```
 
-## 🤝 Contributing
+## CLI Usage
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+The CLI accepts `.csv`, `.xlsx`, and `.xls` inputs.
 
-## 📄 License
+```bash
+python3 dynamic_range_average.py --months 10
+```
+
+This reads the default sample input at `data/sp500_raw_data.xlsx`, prints the filtered rows, and writes the full processed dataset to `output/sp500_raw_data_processed.xlsx`.
+
+Use a different input file:
+
+```bash
+python3 dynamic_range_average.py --months 10 --input data/LU1681048804.csv
+```
+
+Choose a specific Excel sheet:
+
+```bash
+python3 dynamic_range_average.py --months 10 --input data/sp500_raw_data.xlsx --sheet Sheet1
+```
+
+Write to a custom output file:
+
+```bash
+python3 dynamic_range_average.py --months 10 --output output/custom_results.csv
+```
+
+If `--months` is omitted in an interactive terminal, the script prompts for it. In non-interactive runs, `--months` is required.
+
+## Input Expectations
+
+Input data must contain at least these columns:
+
+- `date` or `Date`
+- `open`
+
+Additional columns are allowed and are preserved in the saved output. The CLI normalizes column names, parses dates, sorts rows by date, and validates the requested moving-average window against the number of rows in the dataset.
+
+## Output
+
+Each run produces:
+
+- Console output showing rows where `Moving_Average > open`
+- A saved dataset containing all original rows plus:
+  - `Moving_Average`
+  - `condition`
+
+By default, the output path is `output/<input_stem>_processed.<input_extension>`.
+
+## Notebook Usage
+
+Start Jupyter and open `Dynamic_Range_Average.ipynb`:
+
+```bash
+jupyter notebook
+```
+
+## License
 
 This project is for educational and analytical purposes.
