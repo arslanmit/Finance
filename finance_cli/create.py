@@ -14,6 +14,7 @@ from .registry import get_config_path, save_registry
 
 GENERATED_DATA_DIR = Path("data/generated")
 GENERATED_SHEET_NAME = "Sheet1"
+SYMBOL_COLUMN = "symbol"
 EXPECTED_COLUMNS = ["date", "open", "high", "low", "close", "volume"]
 
 
@@ -63,7 +64,7 @@ def create_and_register_symbol_dataset(
     validate_created_dataframe(dataframe, normalized_symbol)
 
     try:
-        write_created_workbook(dataframe, resolved_output_path)
+        write_created_workbook(dataframe, resolved_output_path, normalized_symbol)
     except Exception as exc:
         raise CreationError(f"Failed to write dataset workbook: {exc}") from exc
 
@@ -105,8 +106,9 @@ def validate_created_dataframe(dataframe: pd.DataFrame, symbol: str) -> None:
         raise CreationError(f"Yahoo Finance returned duplicate monthly dates for {symbol}.")
 
 
-def write_created_workbook(dataframe: pd.DataFrame, output_path: Path) -> None:
+def write_created_workbook(dataframe: pd.DataFrame, output_path: Path, symbol: str) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     descending = dataframe.sort_values("date", ascending=False).reset_index(drop=True)
+    descending.insert(0, SYMBOL_COLUMN, symbol)
     with pd.ExcelWriter(output_path) as writer:
         descending.to_excel(writer, sheet_name=GENERATED_SHEET_NAME, index=False)

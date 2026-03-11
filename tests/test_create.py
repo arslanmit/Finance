@@ -62,9 +62,10 @@ def test_create_dataset_writes_workbook_and_registry(tmp_path: Path) -> None:
     assert workbook.sheetnames == ["Sheet1"]
 
     sheet = workbook["Sheet1"]
-    headers = [sheet.cell(row=1, column=index).value for index in range(1, 7)]
-    assert headers == ["date", "open", "high", "low", "close", "volume"]
-    assert sheet.cell(row=2, column=1).value.date().isoformat() == "2024-03-01"
+    headers = [sheet.cell(row=1, column=index).value for index in range(1, 8)]
+    assert headers == ["symbol", "date", "open", "high", "low", "close", "volume"]
+    assert sheet.cell(row=2, column=1).value == "SPY"
+    assert sheet.cell(row=2, column=2).value.date().isoformat() == "2024-03-01"
 
     loaded_registry = load_registry(config_path=config_path)
     assert [item.id for item in loaded_registry] == ["spy"]
@@ -133,6 +134,23 @@ def test_create_dataset_rejects_invalid_symbol_slug(tmp_path: Path) -> None:
             config_path=config_path,
             fetcher=lambda symbol: monthly_frame(),
         )
+
+
+def test_create_dataset_keeps_original_symbol_in_first_column(tmp_path: Path) -> None:
+    config_path = tmp_path / "datasets.json"
+    write_registry(config_path)
+    datasets = load_registry(config_path=config_path)
+
+    dataset = create_and_register_symbol_dataset(
+        datasets,
+        "500.PA",
+        config_path=config_path,
+        fetcher=lambda symbol: monthly_frame(),
+    )
+
+    workbook = load_workbook(tmp_path / dataset.path)
+    sheet = workbook["Sheet1"]
+    assert sheet.cell(row=2, column=1).value == "500.PA"
 
 
 def test_create_dataset_wraps_fetch_errors(tmp_path: Path) -> None:

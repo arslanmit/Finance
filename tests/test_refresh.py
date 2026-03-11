@@ -1,10 +1,12 @@
 from pathlib import Path
 
+import pandas as pd
 import pytest
+from openpyxl import load_workbook
 
 from finance_cli.errors import RefreshError
 from finance_cli.models import DatasetConfig, RefreshMetadata, ResolvedSource
-from finance_cli.refresh import validate_refreshable_source
+from finance_cli.refresh import validate_refreshable_source, write_workbook_rows
 
 
 def test_validate_refresh_rejects_custom_file(tmp_path: Path) -> None:
@@ -48,3 +50,38 @@ def test_validate_refresh_rejects_unsupported_provider(tmp_path: Path) -> None:
 
     with pytest.raises(RefreshError, match="unsupported refresh provider"):
         validate_refreshable_source(source)
+
+
+def test_write_workbook_rows_preserves_symbol_first_column(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "spy.xlsx"
+    with pd.ExcelWriter(workbook_path) as writer:
+        pd.DataFrame(
+            {
+                "symbol": ["SPY"],
+                "date": [pd.Timestamp("2024-01-01")],
+                "open": [10.0],
+                "high": [11.0],
+                "low": [9.0],
+                "close": [10.5],
+                "volume": [100],
+            }
+        ).to_excel(writer, sheet_name="Sheet1", index=False)
+
+    source = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-02-01", "2024-03-01"]),
+            "open": [12.0, 11.0],
+            "high": [13.0, 12.0],
+            "low": [11.0, 10.0],
+            "close": [12.5, 11.5],
+            "volume": [110, 120],
+        }
+    )
+
+    write_workbook_rows(workbook_path, source, "Sheet1", "SPY")
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Sheet1"]
+    assert sheet.cell(row=1, column=1).value == "symbol"
+    assert sheet.cell(row=2, column=1).value == "SPY"
+    assert sheet.cell(row=2, column=2).value.date().isoformat() == "2024-03-01"

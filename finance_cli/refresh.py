@@ -27,7 +27,9 @@ FULL_HISTORY_PERIOD1 = 0
 EARLIEST_REAL_MONTH = pd.Timestamp("2010-06-01")
 OVERLAP_MONTHS = ("2024-08-01", "2024-10-01")
 NOVEMBER_OPEN_MONTH = pd.Timestamp("2024-11-01")
+SYMBOL_HEADER = "symbol"
 EXPECTED_HEADERS = ["date", "open", "high", "low", "close", "volume"]
+EXPECTED_HEADERS_WITH_SYMBOL = [SYMBOL_HEADER, *EXPECTED_HEADERS]
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Accept": "application/json,text/plain,*/*",
@@ -70,7 +72,15 @@ def refresh_selected_source(source: ResolvedSource) -> RefreshSummary:
         source.input_path,
         symbol=dataset.refresh.symbol,
         sheet_name=source.sheet_name,
+        strict_validation=is_default_refresh_target(source),
     )
+
+
+def is_default_refresh_target(source: ResolvedSource) -> bool:
+    dataset = source.dataset
+    if dataset is None or dataset.refresh is None:
+        return False
+    return dataset.path == DEFAULT_WORKBOOK.as_posix() and dataset.refresh.symbol == DEFAULT_SYMBOL
 
 
 def build_chart_url(symbol: str, period1: int, period2: int) -> str:
@@ -163,6 +173,8 @@ def fetch_monthly_source(symbol: str = DEFAULT_SYMBOL) -> pd.DataFrame:
 def load_existing_workbook_data(workbook_path: Path, sheet_name: str) -> pd.DataFrame:
     dataframe = pd.read_excel(workbook_path, sheet_name=sheet_name)
     dataframe.columns = [str(column).strip().lower() for column in dataframe.columns]
+    if SYMBOL_HEADER in dataframe.columns:
+        dataframe = dataframe.drop(columns=[SYMBOL_HEADER])
     dataframe["date"] = pd.to_datetime(dataframe["date"]).dt.normalize()
     return dataframe
 
@@ -226,36 +238,52 @@ def find_last_populated_row(worksheet) -> int:
     return last_row
 
 
+def get_workbook_layout(worksheet) -> tuple[list[str], bool]:
+    headers = [
+        worksheet.cell(row=1, column=index).value
+        for index in range(1, len(EXPECTED_HEADERS_WITH_SYMBOL) + 1)
+    ]
+    if headers[: len(EXPECTED_HEADERS)] == EXPECTED_HEADERS:
+        return EXPECTED_HEADERS, False
+    if headers == EXPECTED_HEADERS_WITH_SYMBOL:
+        return EXPECTED_HEADERS_WITH_SYMBOL, True
+    raise RefreshError(f"Unexpected workbook headers: {headers}")
+
+
 def write_workbook_rows(workbook_path: Path, source: pd.DataFrame, sheet_name: str, symbol: str) -> None:
     workbook = load_workbook(workbook_path)
     if sheet_name not in workbook.sheetnames:
         raise RefreshError(f"Sheet '{sheet_name}' was not found in {workbook_path}.")
 
     worksheet = workbook[sheet_name]
-    headers = [worksheet.cell(row=1, column=index).value for index in range(1, 7)]
-    if headers != EXPECTED_HEADERS:
-        raise RefreshError(f"Unexpected workbook headers: {headers}")
+    headers, include_symbol_column = get_workbook_layout(worksheet)
+    header_count = len(headers)
 
     last_populated_row = find_last_populated_row(worksheet)
     blank_style_row = min(last_populated_row + 1, worksheet.max_row)
-    data_styles = {column: copy(worksheet.cell(row=2, column=column)._style) for column in range(1, 7)}
+    data_styles = {
+        column: copy(worksheet.cell(row=2, column=column)._style)
+        for column in range(1, header_count + 1)
+    }
     blank_styles = {
-        column: copy(worksheet.cell(row=blank_style_row, column=column)._style) for column in range(1, 7)
+        column: copy(worksheet.cell(row=blank_style_row, column=column)._style)
+        for column in range(1, header_count + 1)
     }
 
     descending = source.sort_values("date", ascending=False).reset_index(drop=True)
     output_rows: list[list[object]] = []
     for record in descending.itertuples(index=False):
-        output_rows.append(
-            [
-                record.date.to_pydatetime(),
-                float(record.open),
-                float(record.high),
-                float(record.low),
-                float(record.close),
-                int(record.volume),
-            ]
-        )
+        row = [
+            record.date.to_pydatetime(),
+            float(record.open),
+            float(record.high),
+            float(record.low),
+            float(record.close),
+            int(record.volume),
+        ]
+        if include_symbol_column:
+            row = [symbol, *row]
+        output_rows.append(row)
 
     max_target_row = max(worksheet.max_row, len(output_rows) + 1)
     for row_index in range(2, max_target_row + 1):
@@ -263,7 +291,7 @@ def write_workbook_rows(workbook_path: Path, source: pd.DataFrame, sheet_name: s
             values = output_rows[row_index - 2]
             styles = data_styles
         else:
-            values = [None, None, None, None, None, None]
+            values = [None] * header_count
             styles = blank_styles
 
         for column_index, value in enumerate(values, start=1):
@@ -286,14 +314,16 @@ def refresh_yahoo_monthly_workbook(
     workbook_path: Path,
     symbol: str = DEFAULT_SYMBOL,
     sheet_name: str = DEFAULT_SHEET,
+    strict_validation: bool = True,
 ) -> RefreshSummary:
     if not workbook_path.exists():
         raise RefreshError(f"Refresh target does not exist: {workbook_path}")
 
     existing = load_existing_workbook_data(workbook_path, sheet_name)
-    source = fetch_monthly_source(symbol)
+    source = fetch_monthly_source(symbol) if strict_validation else fetch_full_history_monthly_source(symbol)
     validate_source_contiguity(source)
-    validate_overlap(existing, source)
+    if strict_validation:
+        validate_overlap(existing, source)
     backup_path = create_backup(workbook_path)
     write_workbook_rows(workbook_path, source, sheet_name, symbol)
 
@@ -307,4 +337,9 @@ def refresh_yahoo_monthly_workbook(
 
 
 def refresh_default_workbook(workbook_path: Path = DEFAULT_WORKBOOK) -> RefreshSummary:
-    return refresh_yahoo_monthly_workbook(workbook_path, symbol=DEFAULT_SYMBOL, sheet_name=DEFAULT_SHEET)
+    return refresh_yahoo_monthly_workbook(
+        workbook_path,
+        symbol=DEFAULT_SYMBOL,
+        sheet_name=DEFAULT_SHEET,
+        strict_validation=True,
+    )

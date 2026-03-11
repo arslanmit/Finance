@@ -80,6 +80,7 @@ What this does:
 - creates a workbook in `data/generated/`
 - registers the dataset in `datasets.json`
 - enables future refresh with the same Yahoo symbol
+- writes the symbol itself as the first column in the generated workbook
 
 Generated files use this pattern:
 
