@@ -206,6 +206,89 @@ The intuition is straightforward:
 
 This repo does not claim that the rule is optimal. It exposes the signal clearly so you can inspect the data and build on it.
 
+### How To Use These Methods In Practice
+
+The project gives you one core method with different practical uses depending on the moving-average window you choose.
+
+#### 1. Shorter Window For Faster Regime Detection
+
+Use a smaller `--months` value when you want a more reactive screen:
+
+```bash
+python3 dynamic_range_average.py run --dataset nvda --months 3
+```
+
+Typical use:
+
+- faster detection of recent price dislocations versus the recent average
+- more sensitivity to short-term market changes
+- more noise and more frequent signal flips
+
+#### 2. Medium Window For A Balanced Screen
+
+Use a mid-range window when you want a practical default:
+
+```bash
+python3 dynamic_range_average.py run --dataset spy --months 6
+```
+
+Typical use:
+
+- balances responsiveness and smoothing
+- useful as a general screening window for monthly datasets
+- often the easiest starting point for comparing assets with the same logic
+
+#### 3. Longer Window For Slower Trend Context
+
+Use a larger window when you want a slower-moving view of regime direction:
+
+```bash
+python3 dynamic_range_average.py run --dataset 500_pa --months 12
+```
+
+Typical use:
+
+- emphasizes longer-term trend context
+- reduces sensitivity to short-term noise
+- reacts later to regime changes
+
+#### 4. Use Refresh Before Applying The Method
+
+If the dataset is symbol-backed, refresh first so the screen uses the latest available monthly data:
+
+```bash
+python3 dynamic_range_average.py run --dataset aapl --months 6 --refresh
+```
+
+Typical use:
+
+- operational workflow for recurring monthly screening
+- useful when generated datasets are part of a repeatable research process
+
+#### 5. Apply The Same Method To Your Own CSV
+
+You can use the same moving-average methodology on an external CSV as long as it includes `date` and `open`:
+
+```bash
+python3 dynamic_range_average.py run --file data/data_to_pyhton.csv --months 12
+```
+
+Typical use:
+
+- applying the method to internal research exports
+- comparing non-Yahoo datasets with the same signal logic
+- extending the screen with extra custom columns that remain in the processed CSV
+
+### How To Read The Signal
+
+The most useful interpretation is usually:
+
+- `condition = 1`: the moving average is above the current `open`
+- positive `moving_average_minus_open_over_open`: the current `open` is below its recent average
+- larger positive values in that primary gap column: the current `open` is further below its recent average
+
+In practical screening terms, that means the project is most naturally used to find rows where price is trading below its recent average level, then inspect the size of that gap.
+
 ## Output Columns And Interpretation
 
 By default the app writes:
