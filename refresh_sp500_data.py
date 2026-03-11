@@ -4,7 +4,7 @@
 from finance_cli.refresh import (
     RefreshError,
     RefreshSummary,
-    refresh_default_dataset,
+    refresh_generated_dataset,
     refresh_selected_source,
     refresh_yahoo_monthly_csv,
     validate_refreshable_source,
@@ -13,7 +13,7 @@ from finance_cli.refresh import (
 __all__ = [
     "RefreshError",
     "RefreshSummary",
-    "refresh_default_dataset",
+    "refresh_generated_dataset",
     "refresh_selected_source",
     "refresh_yahoo_monthly_csv",
     "validate_refreshable_source",

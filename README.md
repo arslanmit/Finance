@@ -4,9 +4,9 @@ Simple command-line tool for analyzing ETF, stock, and similar market datasets w
 
 The app supports three main workflows:
 
-- run analysis on a discovered managed dataset
+- run analysis on a generated dataset discovered from `data/generated`
 - run analysis on your own CSV file
-- create a brand-new managed CSV dataset from a Yahoo Finance symbol such as `SPY`, `VOO`, `AAPL`, or `500.PA`
+- create a brand-new generated CSV dataset from a Yahoo Finance symbol such as `SPY`, `VOO`, `AAPL`, or `500.PA`
 
 ## Install
 
@@ -30,16 +30,16 @@ python3 dynamic_range_average.py
 
 The wizard can:
 
-- use an existing managed dataset discovered from `data/live`, `data/generated`, or `data/imported`
+- use an existing generated dataset discovered from `data/generated`
 - use a custom CSV file
 - create a new dataset from a Yahoo symbol
 
 ## Common Commands
 
-Run a discovered dataset:
+Run a generated dataset:
 
 ```bash
-python3 dynamic_range_average.py run --dataset default --months 6
+python3 dynamic_range_average.py run --dataset 500_pa --months 6
 ```
 
 Run your own CSV file:
@@ -48,43 +48,41 @@ Run your own CSV file:
 python3 dynamic_range_average.py run --file data/data_to_pyhton.csv --months 12
 ```
 
-Run a discovered refreshable dataset and refresh it first:
+Run a generated refreshable dataset and refresh it first:
 
 ```bash
-python3 dynamic_range_average.py run --dataset default --months 6 --refresh
+python3 dynamic_range_average.py run --dataset 500_pa --months 6 --refresh
 ```
 
-List discovered datasets:
+List generated datasets:
 
 ```bash
 python3 dynamic_range_average.py datasets list
 ```
 
-Refresh every discoverable live dataset:
+Refresh every generated symbol-backed dataset:
 
 ```bash
 python3 dynamic_range_average.py datasets refresh --all
 ```
 
-## Managed Dataset Folders
+## Generated Dataset Folder
 
-Datasets are discovered from these folders only:
+Named datasets are discovered from this folder only:
 
-- `data/live/*.csv`
 - `data/generated/*.csv`
-- `data/imported/*.csv`
 
-Dataset ids come from file names. For example:
+Dataset ids come directly from file names. For example:
 
-- `data/live/default.csv` -> `default`
+- `data/generated/500_pa.csv` -> `500_pa`
 - `data/generated/nvda.csv` -> `nvda`
-- `data/imported/sample_imported.csv` -> `sample_imported`
+- `data/generated/spy.csv` -> `spy`
 
-Files outside those folders are never auto-discovered, but they can still be used with `run --file`.
+Files outside `data/generated` are never auto-discovered, but they can still be used with `run --file`.
 
 ## Create A Dataset From A Symbol
 
-Create a new managed dataset from Yahoo Finance:
+Create a new generated dataset from Yahoo Finance:
 
 ```bash
 python3 dynamic_range_average.py datasets create --symbol SPY
@@ -121,33 +119,33 @@ After creation, you can run the new dataset immediately:
 python3 dynamic_range_average.py run --dataset spy --months 6
 ```
 
-## Import Or Remove Datasets
+## Add Or Remove Generated Datasets
 
-Import an existing CSV into managed storage:
-
-```bash
-python3 dynamic_range_average.py datasets add --id sample_imported --path data/data_to_pyhton.csv
-```
-
-Import an existing refreshable CSV into `data/live`:
+Copy an existing CSV into generated storage using its filename:
 
 ```bash
-python3 dynamic_range_average.py datasets add --id live_sp500 --path data/live/default.csv --refresh-symbol 500.PA
+python3 dynamic_range_average.py datasets add --path data/data_to_pyhton.csv
 ```
 
-Remove a discovered dataset:
+If the file should be refreshable, add the symbol while importing:
 
 ```bash
-python3 dynamic_range_average.py datasets remove --id sample_imported
+python3 dynamic_range_average.py datasets add --path data/my_sp500.csv --refresh-symbol 500.PA
 ```
 
-Refresh one live dataset:
+Remove a generated dataset:
 
 ```bash
-python3 dynamic_range_average.py datasets refresh --id default
+python3 dynamic_range_average.py datasets remove --id spy
 ```
 
-Refresh all live datasets inferred from a non-empty `symbol` column:
+Refresh one generated dataset:
+
+```bash
+python3 dynamic_range_average.py datasets refresh --id 500_pa
+```
+
+Refresh all generated symbol-backed datasets:
 
 ```bash
 python3 dynamic_range_average.py datasets refresh --all
@@ -194,7 +192,7 @@ output/<input_stem>_processed.csv
 
 Examples:
 
-- `data/live/default.csv` -> `output/default_processed.csv`
+- `data/generated/500_pa.csv` -> `output/500_pa_processed.csv`
 - `data/generated/spy.csv` -> `output/spy_processed.csv`
 
 You can override this with `--output`, but the output format must still be `.csv`.

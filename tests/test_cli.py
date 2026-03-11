@@ -38,38 +38,37 @@ def monthly_frame() -> pd.DataFrame:
     )
 
 
-def test_datasets_list_command_uses_discovery(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_datasets_list_command_uses_generated_discovery_only(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
-    write_csv(tmp_path / "data" / "live" / "sp500_live.csv", symbol="500.PA")
+    write_csv(tmp_path / "data" / "generated" / "500_pa.csv", symbol="500.PA")
     write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
+    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
     write_csv(tmp_path / "data" / "imported" / "sample_imported.csv")
-    write_csv(tmp_path / "data" / "ignored.csv", symbol="SPY")
 
     code = main(["datasets", "list"])
     output = capsys.readouterr().out
 
     assert code == 0
-    assert "- sp500_live: source=live | file: sp500_live.csv" in output
-    assert "- nvda: source=generated | file: nvda.csv" in output
-    assert "- sample_imported: source=imported | file: sample_imported.csv" in output
-    assert "ignored" not in output
+    assert "- 500_pa | file: 500_pa.csv | refresh: yes" in output
+    assert "- nvda | file: nvda.csv | refresh: yes" in output
+    assert "default" not in output
+    assert "sample_imported" not in output
 
 
 @pytest.mark.parametrize(
     ("relative_path", "dataset_id", "expected_symbol"),
     [
-        ("data/live/default.csv", "default", "500.PA"),
+        ("data/generated/500_pa.csv", "500_pa", "500.PA"),
         ("data/generated/nvda.csv", "nvda", "NVDA"),
-        ("data/imported/sample_imported.csv", "sample_imported", None),
     ],
 )
-def test_run_command_with_discovered_dataset(
+def test_run_command_with_generated_dataset(
     tmp_path: Path,
     monkeypatch,
     capsys,
     relative_path: str,
     dataset_id: str,
-    expected_symbol: str | None,
+    expected_symbol: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     write_csv(tmp_path / relative_path, symbol=expected_symbol)
@@ -79,8 +78,7 @@ def test_run_command_with_discovered_dataset(
 
     assert code == 0
     assert (tmp_path / "output" / f"{dataset_id}_processed.csv").exists()
-    if expected_symbol is not None:
-        assert expected_symbol in output
+    assert expected_symbol in output
 
 
 def test_run_command_with_custom_file(tmp_path: Path, capsys) -> None:
@@ -118,54 +116,46 @@ def test_parser_rejects_removed_sheet_flag_for_add() -> None:
     parser = build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(
-            ["datasets", "add", "--id", "sample", "--label", "Sample", "--path", "sample.csv", "--sheet", "Sheet1"]
-        )
+        parser.parse_args(["datasets", "add", "--path", "sample.csv", "--sheet", "Sheet1"])
 
 
-def test_datasets_add_imports_into_imported_folder_and_ignores_label(
+def test_parser_rejects_removed_id_flag_for_add() -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["datasets", "add", "--id", "sample", "--path", "sample.csv"])
+
+
+def test_datasets_add_imports_into_generated_folder_using_source_filename(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    source = tmp_path / "source.csv"
+    source = tmp_path / "sample.csv"
     write_csv(source)
 
-    code = main(
-        [
-            "datasets",
-            "add",
-            "--id",
-            "sample",
-            "--label",
-            "Legacy Label",
-            "--path",
-            str(source),
-        ]
-    )
+    code = main(["datasets", "add", "--path", str(source)])
     output = capsys.readouterr().out
 
     assert code == 0
-    assert "Added dataset 'sample' -> data/imported/sample.csv" in output
-    assert (tmp_path / "data" / "imported" / "sample.csv").exists()
+    assert "Added dataset 'sample' -> data/generated/sample.csv" in output
+    assert (tmp_path / "data" / "generated" / "sample.csv").exists()
 
 
-def test_datasets_add_with_refresh_symbol_writes_live_dataset_with_symbol_first(
+def test_datasets_add_with_refresh_symbol_writes_generated_dataset_with_symbol_first(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    source = tmp_path / "source.csv"
+    source = tmp_path / "nvda.csv"
     write_csv(source)
 
     code = main(
         [
             "datasets",
             "add",
-            "--id",
-            "nvda",
             "--path",
             str(source),
             "--refresh-symbol",
@@ -175,9 +165,26 @@ def test_datasets_add_with_refresh_symbol_writes_live_dataset_with_symbol_first(
     capsys.readouterr()
 
     assert code == 0
-    imported = pd.read_csv(tmp_path / "data" / "live" / "nvda.csv")
+    imported = pd.read_csv(tmp_path / "data" / "generated" / "nvda.csv")
     assert list(imported.columns)[:3] == ["symbol", "date", "open"]
     assert imported["symbol"].tolist() == ["NVDA", "NVDA", "NVDA"]
+
+
+def test_datasets_add_fails_on_generated_filename_collision(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "sample.csv"
+    write_csv(source)
+    write_csv(tmp_path / "data" / "generated" / "sample.csv")
+
+    code = main(["datasets", "add", "--path", str(source)])
+    error = capsys.readouterr().err
+
+    assert code == 1
+    assert "Rename 'sample.csv'" in error
 
 
 def test_datasets_create_command_writes_into_generated_folder(
@@ -199,21 +206,21 @@ def test_datasets_create_command_writes_into_generated_folder(
     assert (tmp_path / "data" / "generated" / "spy.csv").exists()
 
 
-def test_datasets_remove_deletes_backing_file(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_datasets_remove_deletes_backing_generated_file(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
-    write_csv(tmp_path / "data" / "imported" / "sample.csv")
+    write_csv(tmp_path / "data" / "generated" / "sample.csv")
 
     code = main(["datasets", "remove", "--id", "sample"])
     output = capsys.readouterr().out
 
     assert code == 0
     assert "Removed dataset 'sample'" in output
-    assert not (tmp_path / "data" / "imported" / "sample.csv").exists()
+    assert not (tmp_path / "data" / "generated" / "sample.csv").exists()
 
 
 def test_datasets_refresh_single_command(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
-    write_csv(tmp_path / "data" / "live" / "live.csv", symbol="SPY")
+    write_csv(tmp_path / "data" / "generated" / "live.csv", symbol="SPY")
 
     def fake_refresh(source):
         assert source.dataset is not None
@@ -236,15 +243,16 @@ def test_datasets_refresh_single_command(tmp_path: Path, monkeypatch, capsys) ->
     assert "symbol=SPY" in output
 
 
-def test_datasets_refresh_all_uses_symbol_column_presence(
+def test_datasets_refresh_all_uses_only_generated_symbol_backed_datasets(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
+    write_csv(tmp_path / "data" / "generated" / "500_pa.csv", symbol="500.PA")
     write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
-    write_csv(tmp_path / "data" / "imported" / "sample_imported.csv")
+    write_csv(tmp_path / "data" / "generated" / "sample.csv")
+    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
     refreshed_ids: list[str] = []
 
     def fake_refresh(source):
@@ -264,31 +272,32 @@ def test_datasets_refresh_all_uses_symbol_column_presence(
     output = capsys.readouterr().out
 
     assert code == 0
-    assert refreshed_ids == ["default", "nvda"]
-    assert "sample_imported" not in output
+    assert refreshed_ids == ["500_pa", "nvda"]
+    assert "sample" not in output
+    assert "default" not in output
 
 
-def test_datasets_refresh_all_errors_when_none_are_refreshable(
+def test_datasets_refresh_all_errors_when_no_generated_dataset_is_refreshable(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    write_csv(tmp_path / "data" / "imported" / "sample.csv")
+    write_csv(tmp_path / "data" / "generated" / "sample.csv")
 
     code = main(["datasets", "refresh", "--all"])
     error = capsys.readouterr().err
 
     assert code == 1
-    assert "No discovered datasets support live refresh." in error
+    assert "No generated datasets support live refresh." in error
 
 
-def test_wizard_menu_order_uses_discovered_datasets(tmp_path: Path) -> None:
+def test_wizard_menu_order_uses_generated_datasets_then_actions(tmp_path: Path) -> None:
     write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
-    write_csv(tmp_path / "data" / "live" / "sp500_live.csv", symbol="500.PA")
-    write_csv(tmp_path / "data" / "imported" / "sample_imported.csv")
+    write_csv(tmp_path / "data" / "generated" / "500_pa.csv", symbol="500.PA")
+    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
 
     items = build_wizard_menu_items(discover_datasets(tmp_path))
 
-    assert [item.alias for item in items] == ["sp500_live", "create", "custom", "nvda", "sample_imported"]
-    assert items[0].label == "sp500_live [live] (sp500_live.csv) [refresh available]"
+    assert [item.alias for item in items] == ["500_pa", "nvda", "create", "custom"]
+    assert items[0].label == "500_pa [refresh available]"

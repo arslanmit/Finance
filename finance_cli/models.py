@@ -33,10 +33,6 @@ class DatasetConfig:
         return Path(self.path).name
 
     @property
-    def source_group(self) -> str:
-        return Path(self.path).parent.name or "unknown"
-
-    @property
     def supports_refresh(self) -> bool:
         return self.refresh is not None
 

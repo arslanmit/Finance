@@ -49,27 +49,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="Run moving-average analysis.")
     run_group = run_parser.add_mutually_exclusive_group(required=True)
-    run_group.add_argument("--dataset", help="Dataset id discovered from the managed CSV folders.")
+    run_group.add_argument("--dataset", help="Dataset id from data/generated.")
     run_group.add_argument("--file", help="Path to a CSV file.")
     run_parser.add_argument("--months", type=int, required=True, help="Moving average window size.")
     run_parser.add_argument("--output", help="Optional output CSV path.")
     run_parser.add_argument(
         "--refresh",
         action="store_true",
-        help="Refresh a discovered live dataset before analysis.",
+        help="Refresh a generated symbol-backed dataset before analysis.",
     )
 
-    datasets_parser = subparsers.add_parser("datasets", help="Manage discovered datasets.")
+    datasets_parser = subparsers.add_parser("datasets", help="Manage generated datasets.")
     datasets_subparsers = datasets_parser.add_subparsers(dest="datasets_command", required=True)
 
-    datasets_subparsers.add_parser("list", help="List all discovered datasets.")
+    datasets_subparsers.add_parser("list", help="List all generated datasets.")
 
     add_parser = datasets_subparsers.add_parser(
         "add",
-        help="Import a CSV into the managed dataset folders.",
+        help="Copy a CSV into data/generated using its filename.",
     )
-    add_parser.add_argument("--id", required=True, help="Unique dataset id.")
-    add_parser.add_argument("--label", help="Ignored compatibility flag.")
     add_parser.add_argument("--path", required=True, help="Path to the dataset CSV file.")
     add_parser.add_argument(
         "--refresh-symbol",
@@ -82,19 +80,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     create_parser.add_argument("--symbol", required=True, help="Yahoo Finance symbol, e.g. SPY or AAPL.")
 
-    remove_parser = datasets_subparsers.add_parser("remove", help="Remove a discovered dataset.")
+    remove_parser = datasets_subparsers.add_parser("remove", help="Remove a generated dataset.")
     remove_parser.add_argument("--id", required=True, help="Dataset id to remove.")
 
     refresh_parser = datasets_subparsers.add_parser(
         "refresh",
-        help="Refresh discovered live datasets from their configured provider.",
+        help="Refresh generated symbol-backed datasets from Yahoo Finance.",
     )
     refresh_group = refresh_parser.add_mutually_exclusive_group(required=True)
     refresh_group.add_argument("--id", help="Dataset id to refresh.")
     refresh_group.add_argument(
         "--all",
         action="store_true",
-        help="Refresh all discovered datasets that support live refresh.",
+        help="Refresh all generated datasets that support live refresh.",
     )
 
     return parser
@@ -151,7 +149,6 @@ def handle_datasets_command(args: argparse.Namespace) -> None:
 
     if args.datasets_command == "add":
         dataset = import_dataset(
-            dataset_id=args.id,
             source_path=args.path,
             refresh_symbol=args.refresh_symbol,
         )
@@ -171,7 +168,7 @@ def handle_datasets_command(args: argparse.Namespace) -> None:
         return
 
     if args.datasets_command == "refresh":
-        refreshed = refresh_discovered_datasets(
+        refreshed = refresh_generated_datasets(
             discover_datasets(),
             dataset_id=args.id,
             refresh_all=args.all,
@@ -192,7 +189,7 @@ def run_wizard() -> None:
         not selection.created_now
         and source.dataset is not None
         and source.dataset.supports_refresh
-        and prompt_yes_no("Refresh live data first?", default=False)
+        and prompt_yes_no("Refresh symbol-backed data first?", default=False)
     )
 
     default_output = build_default_output_path(source.input_path)
@@ -204,17 +201,8 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
     print("Choose a dataset:\n")
     menu_items = build_wizard_menu_items(datasets)
 
-    primary_items = [item for item in menu_items if item.action in {"dataset-primary", "create", "custom"}]
-    other_items = [item for item in menu_items if item.action == "dataset-other"]
-
-    for index, item in enumerate(primary_items, start=1):
+    for index, item in enumerate(menu_items, start=1):
         print(f"{index}. {item.label}")
-
-    if other_items:
-        print("others:")
-        offset = len(primary_items)
-        for index, item in enumerate(other_items, start=offset + 1):
-            print(f"{index}. {item.label}")
 
     while True:
         response = input("\nEnter a dataset number or alias: ").strip()
@@ -230,28 +218,19 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
             if response.lower() == item.alias:
                 return select_wizard_menu_item(item)
 
-        print("Invalid selection. Choose a listed number, dataset alias, 'custom', or 'create'.")
+        print("Invalid selection. Choose a listed number, dataset alias, 'create', or 'custom'.")
 
 
 def build_wizard_menu_items(datasets: list[DatasetConfig]) -> list[WizardMenuItem]:
-    sorted_datasets = sort_datasets_for_display(datasets)
-    primary_dataset = next(
-        (dataset for dataset in sorted_datasets if dataset.source_group == "live"),
-        None,
-    )
-    other_datasets = [dataset for dataset in sorted_datasets if dataset != primary_dataset]
-
-    menu_items: list[WizardMenuItem] = []
-    if primary_dataset is not None:
-        menu_items.append(
-            WizardMenuItem(
-                alias=primary_dataset.id,
-                label=dataset_menu_label(primary_dataset),
-                action="dataset-primary",
-                dataset=primary_dataset,
-            )
+    menu_items = [
+        WizardMenuItem(
+            alias=dataset.id,
+            label=dataset_menu_label(dataset),
+            action="dataset",
+            dataset=dataset,
         )
-
+        for dataset in sort_datasets_for_display(datasets)
+    ]
     menu_items.append(
         WizardMenuItem(
             alias="create",
@@ -266,31 +245,18 @@ def build_wizard_menu_items(datasets: list[DatasetConfig]) -> list[WizardMenuIte
             action="custom",
         )
     )
-
-    for dataset in other_datasets:
-        menu_items.append(
-            WizardMenuItem(
-                alias=dataset.id,
-                label=dataset_menu_label(dataset),
-                action="dataset-other",
-                dataset=dataset,
-            )
-        )
-
     return menu_items
 
 
 def dataset_menu_label(dataset: DatasetConfig) -> str:
     refresh_tag = " [refresh available]" if dataset.supports_refresh else ""
-    return f"{dataset.id} [{dataset.source_group}] ({dataset.file_name}){refresh_tag}"
+    return f"{dataset.id}{refresh_tag}"
 
 
 def sort_datasets_for_display(datasets: list[DatasetConfig]) -> list[DatasetConfig]:
-    source_rank = {"live": 0, "generated": 1, "imported": 2}
     return sorted(
         datasets,
         key=lambda dataset: (
-            source_rank.get(dataset.source_group, 99),
             dataset.file_name.lower(),
             dataset.id.lower(),
         ),
@@ -300,7 +266,7 @@ def sort_datasets_for_display(datasets: list[DatasetConfig]) -> list[DatasetConf
 def select_wizard_menu_item(
     item: WizardMenuItem,
 ) -> WizardSourceChoice:
-    if item.action in {"dataset-primary", "dataset-other"}:
+    if item.action == "dataset":
         if item.dataset is None:
             raise FinanceCliError("Wizard dataset selection is invalid.")
         return WizardSourceChoice(resolve_dataset_source(item.dataset))
@@ -396,7 +362,7 @@ def execute_analysis(
     print(f"\nProcessed data saved to: {output_path}")
 
 
-def refresh_discovered_datasets(
+def refresh_generated_datasets(
     datasets: list[DatasetConfig],
     *,
     dataset_id: str | None,
@@ -405,7 +371,7 @@ def refresh_discovered_datasets(
     if refresh_all:
         targets = [dataset for dataset in datasets if dataset.supports_refresh]
         if not targets:
-            raise FinanceCliError("No discovered datasets support live refresh.")
+            raise FinanceCliError("No generated datasets support live refresh.")
     else:
         if dataset_id is None:
             raise FinanceCliError("A dataset id is required unless --all is used.")
@@ -445,7 +411,4 @@ def print_dataset_list(datasets: list[DatasetConfig]) -> None:
     print("Available datasets:\n")
     for dataset in sort_datasets_for_display(datasets):
         refresh_text = "yes" if dataset.supports_refresh else "no"
-        print(
-            f"- {dataset.id}: source={dataset.source_group} | file: {dataset.file_name} | "
-            f"path: {dataset.path} | refresh: {refresh_text}"
-        )
+        print(f"- {dataset.id} | file: {dataset.file_name} | refresh: {refresh_text}")

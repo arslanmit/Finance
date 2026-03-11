@@ -18,7 +18,7 @@ class AnalysisError(FinanceCliError):
 
 
 class RefreshError(FinanceCliError):
-    """Raised when live dataset refresh fails."""
+    """Raised when generated-dataset refresh fails."""
 
 
 class CreationError(FinanceCliError):

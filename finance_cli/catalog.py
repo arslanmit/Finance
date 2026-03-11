@@ -1,4 +1,4 @@
-"""Managed dataset discovery and filesystem-backed dataset operations."""
+"""Generated-dataset discovery and filesystem-backed dataset operations."""
 
 from __future__ import annotations
 
@@ -19,10 +19,7 @@ from .sources import (
     normalize_columns,
 )
 
-LIVE_DATA_DIR = Path("data/live")
 GENERATED_DATA_DIR = Path("data/generated")
-IMPORTED_DATA_DIR = Path("data/imported")
-MANAGED_DATA_DIRS = (LIVE_DATA_DIR, GENERATED_DATA_DIR, IMPORTED_DATA_DIR)
 SUPPORTED_REFRESH_PROVIDER = "yahoo"
 DATASET_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -37,31 +34,19 @@ def validate_dataset_id(dataset_id: str) -> str:
         raise CatalogError("Dataset id is required.")
     if not DATASET_ID_PATTERN.fullmatch(normalized):
         raise CatalogError(
-            "Dataset id may contain only letters, numbers, dots, underscores, and hyphens."
+            "Dataset ids must use only letters, numbers, dots, underscores, or hyphens."
         )
     return normalized
 
 
 def discover_datasets(base_dir: Path | None = None) -> list[DatasetConfig]:
     root = get_base_dir(base_dir)
-    discovered: dict[str, DatasetConfig] = {}
+    dataset_dir = root / GENERATED_DATA_DIR
+    if not dataset_dir.exists():
+        return []
 
-    for relative_dir in MANAGED_DATA_DIRS:
-        dataset_dir = root / relative_dir
-        if not dataset_dir.exists():
-            continue
-
-        for dataset_path in sorted(dataset_dir.glob("*.csv")):
-            dataset = build_dataset_config(dataset_path, root)
-            existing = discovered.get(dataset.id)
-            if existing is not None:
-                raise CatalogError(
-                    "Duplicate dataset id "
-                    f"'{dataset.id}' discovered at {existing.path} and {dataset.path}."
-                )
-            discovered[dataset.id] = dataset
-
-    return sorted(discovered.values(), key=lambda dataset: dataset.id)
+    datasets = [build_dataset_config(dataset_path, root) for dataset_path in sorted(dataset_dir.glob("*.csv"))]
+    return sorted(datasets, key=lambda dataset: dataset.id.lower())
 
 
 def build_dataset_config(dataset_path: Path, base_dir: Path | None = None) -> DatasetConfig:
@@ -74,9 +59,10 @@ def build_dataset_config(dataset_path: Path, base_dir: Path | None = None) -> Da
     except ValueError as exc:
         raise CatalogError(f"Dataset path must live under the project root: {resolved_path}") from exc
 
+    dataset_id = validate_dataset_id(resolved_path.stem)
     return DatasetConfig(
-        id=resolved_path.stem,
-        label=resolved_path.stem,
+        id=dataset_id,
+        label=dataset_id,
         path=relative_path,
         refresh=infer_refresh_metadata(resolved_path),
         base_dir=root,
@@ -114,27 +100,24 @@ def get_dataset(dataset_id: str, datasets: Iterable[DatasetConfig] | None = None
 
 def import_dataset(
     *,
-    dataset_id: str,
     source_path: str | Path,
     refresh_symbol: str | None = None,
     base_dir: Path | None = None,
 ) -> DatasetConfig:
     root = get_base_dir(base_dir)
-    normalized_id = validate_dataset_id(dataset_id)
     normalized_symbol = normalize_refresh_symbol(refresh_symbol)
-
-    if any(dataset.id == normalized_id for dataset in discover_datasets(root)):
-        raise CatalogError(f"Dataset '{normalized_id}' already exists.")
 
     source = Path(source_path).expanduser()
     if not source.exists():
         raise CatalogError(f"Dataset path was not found: {source}")
     ensure_supported_file_suffix(source.suffix.lower(), kind="dataset")
 
-    relative_dir = LIVE_DATA_DIR if normalized_symbol is not None else IMPORTED_DATA_DIR
-    target_path = root / relative_dir / f"{normalized_id}.csv"
+    dataset_id = derive_dataset_id_from_source(source)
+    target_path = root / GENERATED_DATA_DIR / f"{dataset_id}.csv"
     if target_path.exists():
-        raise CatalogError(f"Target dataset file already exists: {target_path}")
+        raise CatalogError(
+            f"Generated dataset '{dataset_id}' already exists. Rename '{source.name}' or remove the existing dataset first."
+        )
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     if normalized_symbol is None:
@@ -144,6 +127,16 @@ def import_dataset(
         ensure_symbol_column(dataframe, normalized_symbol).to_csv(target_path, index=False)
 
     return build_dataset_config(target_path, root)
+
+
+def derive_dataset_id_from_source(source_path: Path) -> str:
+    source_stem = source_path.stem.strip()
+    try:
+        return validate_dataset_id(source_stem)
+    except CatalogError as exc:
+        raise CatalogError(
+            f"Source filename '{source_path.name}' cannot become a dataset id. Rename the file to use only letters, numbers, dots, underscores, or hyphens."
+        ) from exc
 
 
 def remove_dataset(dataset_id: str, base_dir: Path | None = None) -> DatasetConfig:

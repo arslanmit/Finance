@@ -30,3 +30,18 @@ def test_repo_has_no_registry_artifacts_or_excel_dependencies() -> None:
 
     for text in ("datasets.json", "FINANCE_CLI_DATASETS_CONFIG"):
         assert all(text not in path.read_text(encoding="utf-8") for path in searchable_files)
+
+
+def test_repo_uses_generated_only_named_dataset_flow() -> None:
+    searchable_files = [
+        ROOT / "README.md",
+        *ROOT.glob("finance_cli/**/*.py"),
+        *[path for path in ROOT.glob("tests/**/*.py") if path.name != "test_repo_csv_only.py"],
+    ]
+
+    assert (ROOT / "data" / "generated" / "500_pa.csv").exists()
+    assert (ROOT / "output" / "500_pa_processed.csv").exists()
+    assert not (ROOT / "output" / "default_processed.csv").exists()
+
+    for text in ("data/live/default.csv", "source=live", "source=generated", "refresh_default_dataset"):
+        assert all(text not in path.read_text(encoding="utf-8") for path in searchable_files)
