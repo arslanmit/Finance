@@ -8,6 +8,7 @@ from finance_cli.analysis import (
     SECONDARY_GAP_COLUMN,
     analyze_dataframe,
     build_default_output_path,
+    ordered_output_columns,
     prepare_dataframe,
     render_filtered_rows,
     save_dataframe,
@@ -99,6 +100,26 @@ def test_render_filtered_rows_shows_symbol_when_present() -> None:
     assert "moving_average_window_months" in rendered
 
 
+def test_render_filtered_rows_includes_all_input_columns_in_order() -> None:
+    dataframe = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+            "open": [10, 12, 11],
+            "high": [11, 13, 12],
+            "low": [9, 11, 10],
+            "close": [10.5, 12.5, 11.5],
+            "volume": [100, 101, 102],
+        }
+    )
+
+    prepared = prepare_dataframe(dataframe, months=2)
+    analyzed = analyze_dataframe(prepared, months=2)
+    rendered = render_filtered_rows(analyzed)
+    header_tokens = rendered.splitlines()[0].split()
+
+    assert header_tokens == ordered_output_columns(analyzed)
+
+
 def test_render_filtered_rows_shows_all_rows_when_condition_is_zero() -> None:
     dataframe = pd.DataFrame(
         {
@@ -168,3 +189,31 @@ def test_save_dataframe_places_symbol_before_gap_columns(tmp_path: Path) -> None
 
     written = pd.read_csv(output_path)
     assert list(written.columns[:3]) == ["symbol", PRIMARY_GAP_COLUMN, SECONDARY_GAP_COLUMN]
+
+
+def test_save_dataframe_preserves_extra_input_columns_and_matches_terminal_order(
+    tmp_path: Path,
+) -> None:
+    dataframe = pd.DataFrame(
+        {
+            "symbol": ["NVDA", "NVDA", "NVDA"],
+            "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+            "open": [10, 12, 11],
+            "high": [11, 13, 12],
+            "low": [9, 11, 10],
+            "close": [10.5, 12.5, 11.5],
+            "volume": [100, 101, 102],
+        }
+    )
+
+    prepared = prepare_dataframe(dataframe, months=2)
+    analyzed = analyze_dataframe(prepared, months=2)
+    rendered = render_filtered_rows(analyzed)
+    header_tokens = rendered.splitlines()[0].split()
+    output_path = tmp_path / "output.csv"
+
+    save_dataframe(analyzed, output_path)
+
+    written = pd.read_csv(output_path)
+    assert list(written.columns) == ordered_output_columns(analyzed)
+    assert header_tokens == list(written.columns)

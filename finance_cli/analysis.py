@@ -11,11 +11,14 @@ from .sources import ensure_supported_file_suffix, ensure_symbol_column
 
 PRIMARY_GAP_COLUMN = "moving_average_minus_open_over_open"
 SECONDARY_GAP_COLUMN = "open_minus_moving_average_over_moving_average"
-DISPLAY_COLUMNS = [
+LEADING_OUTPUT_COLUMNS = [
+    "symbol",
     PRIMARY_GAP_COLUMN,
     SECONDARY_GAP_COLUMN,
     "date",
     "open",
+]
+TRAILING_DERIVED_COLUMNS = [
     "moving_average_window_months",
     "Moving_Average",
     "condition",
@@ -81,9 +84,7 @@ def build_default_output_path(input_path: Path) -> Path:
 
 
 def render_filtered_rows(dataframe: pd.DataFrame) -> str:
-    display_columns = ordered_output_columns(dataframe, DISPLAY_COLUMNS)
-
-    displayed = dataframe[display_columns]
+    displayed = dataframe[ordered_output_columns(dataframe)]
     if displayed.empty:
         return "No rows are available for display."
     return displayed.to_string(index=False)
@@ -97,28 +98,16 @@ def save_dataframe(dataframe: pd.DataFrame, output_path: Path) -> None:
     output_dataframe.to_csv(output_path, index=False, date_format="%Y-%m-%d")
 
 
-def ordered_output_columns(
-    dataframe: pd.DataFrame, trailing_columns: list[str] | None = None
-) -> list[str]:
-    leading_columns: list[str] = []
-    if "symbol" in dataframe.columns:
-        leading_columns.append("symbol")
-
-    for column in (PRIMARY_GAP_COLUMN, SECONDARY_GAP_COLUMN):
-        if column in dataframe.columns:
-            leading_columns.append(column)
-
-    if trailing_columns is None:
-        return leading_columns + [
-            column for column in dataframe.columns if column not in leading_columns
-        ]
-
-    ordered_columns = [
-        *leading_columns,
-        *[
-            column
-            for column in trailing_columns
-            if column in dataframe.columns and column not in leading_columns
-        ],
+def ordered_output_columns(dataframe: pd.DataFrame) -> list[str]:
+    leading_columns = [column for column in LEADING_OUTPUT_COLUMNS if column in dataframe.columns]
+    trailing_columns = [
+        column
+        for column in TRAILING_DERIVED_COLUMNS
+        if column in dataframe.columns and column not in leading_columns
     ]
-    return ordered_columns
+    middle_columns = [
+        column
+        for column in dataframe.columns
+        if column not in leading_columns and column not in trailing_columns
+    ]
+    return [*leading_columns, *middle_columns, *trailing_columns]
