@@ -4,6 +4,8 @@ import pandas as pd
 import pytest
 
 from finance_cli.analysis import (
+    PRIMARY_GAP_COLUMN,
+    SECONDARY_GAP_COLUMN,
     analyze_dataframe,
     build_default_output_path,
     prepare_dataframe,
@@ -57,10 +59,21 @@ def test_analyze_dataframe_and_render_output() -> None:
     rendered = render_filtered_rows(analyzed)
 
     assert "Moving_Average" in analyzed.columns
+    assert PRIMARY_GAP_COLUMN in analyzed.columns
+    assert SECONDARY_GAP_COLUMN in analyzed.columns
     assert analyzed["moving_average_window_months"].tolist() == [2, 2, 2]
     assert analyzed["condition"].tolist() == [0, 0, 1]
+    assert pd.isna(analyzed.loc[0, PRIMARY_GAP_COLUMN])
+    assert pd.isna(analyzed.loc[0, SECONDARY_GAP_COLUMN])
+    assert analyzed.loc[1, PRIMARY_GAP_COLUMN] == pytest.approx((11 - 12) / 12)
+    assert analyzed.loc[1, SECONDARY_GAP_COLUMN] == pytest.approx((12 - 11) / 11)
+    assert analyzed.loc[2, PRIMARY_GAP_COLUMN] == pytest.approx((11.5 - 11) / 11)
+    assert analyzed.loc[2, SECONDARY_GAP_COLUMN] == pytest.approx((11 - 11.5) / 11.5)
+    assert analyzed.loc[2, PRIMARY_GAP_COLUMN] > 0
     assert "2024-01-01" in rendered
     assert "2024-03-01" in rendered
+    assert PRIMARY_GAP_COLUMN in rendered
+    assert SECONDARY_GAP_COLUMN in rendered
     assert "moving_average_window_months" in rendered
     assert "0" in rendered
     assert "1" in rendered
@@ -78,9 +91,11 @@ def test_render_filtered_rows_shows_symbol_when_present() -> None:
     prepared = prepare_dataframe(dataframe, months=2)
     analyzed = analyze_dataframe(prepared, months=2)
     rendered = render_filtered_rows(analyzed)
+    header_tokens = rendered.splitlines()[0].split()
 
     assert "symbol" in rendered
     assert "NVDA" in rendered
+    assert header_tokens[:3] == ["symbol", PRIMARY_GAP_COLUMN, SECONDARY_GAP_COLUMN]
     assert "moving_average_window_months" in rendered
 
 
@@ -114,7 +129,7 @@ def test_save_dataframe_rejects_non_csv_output(tmp_path: Path) -> None:
         save_dataframe(dataframe, tmp_path / "output.xlsx")
 
 
-def test_save_dataframe_persists_window_column(tmp_path: Path) -> None:
+def test_save_dataframe_places_gap_columns_first_without_symbol(tmp_path: Path) -> None:
     dataframe = pd.DataFrame(
         {
             "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
@@ -129,5 +144,27 @@ def test_save_dataframe_persists_window_column(tmp_path: Path) -> None:
     save_dataframe(analyzed, output_path)
 
     written = pd.read_csv(output_path)
+    assert list(written.columns[:2]) == [PRIMARY_GAP_COLUMN, SECONDARY_GAP_COLUMN]
     assert "moving_average_window_months" in written.columns
     assert written["moving_average_window_months"].tolist() == [2, 2, 2]
+    assert written[PRIMARY_GAP_COLUMN].dtype.kind == "f"
+    assert written[SECONDARY_GAP_COLUMN].dtype.kind == "f"
+
+
+def test_save_dataframe_places_symbol_before_gap_columns(tmp_path: Path) -> None:
+    dataframe = pd.DataFrame(
+        {
+            "symbol": ["NVDA", "NVDA", "NVDA"],
+            "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+            "open": [10, 12, 11],
+        }
+    )
+
+    prepared = prepare_dataframe(dataframe, months=2)
+    analyzed = analyze_dataframe(prepared, months=2)
+    output_path = tmp_path / "output.csv"
+
+    save_dataframe(analyzed, output_path)
+
+    written = pd.read_csv(output_path)
+    assert list(written.columns[:3]) == ["symbol", PRIMARY_GAP_COLUMN, SECONDARY_GAP_COLUMN]

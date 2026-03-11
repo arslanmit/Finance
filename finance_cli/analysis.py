@@ -9,7 +9,11 @@ import pandas as pd
 from .errors import AnalysisError
 from .sources import ensure_supported_file_suffix, ensure_symbol_column
 
+PRIMARY_GAP_COLUMN = "moving_average_minus_open_over_open"
+SECONDARY_GAP_COLUMN = "open_minus_moving_average_over_moving_average"
 DISPLAY_COLUMNS = [
+    PRIMARY_GAP_COLUMN,
+    SECONDARY_GAP_COLUMN,
     "date",
     "open",
     "moving_average_window_months",
@@ -60,6 +64,12 @@ def analyze_dataframe(dataframe: pd.DataFrame, months: int) -> pd.DataFrame:
     analyzed = dataframe.copy()
     analyzed["moving_average_window_months"] = months
     analyzed["Moving_Average"] = analyzed["open"].rolling(window=months).mean()
+    analyzed[PRIMARY_GAP_COLUMN] = (analyzed["Moving_Average"] - analyzed["open"]) / analyzed[
+        "open"
+    ]
+    analyzed[SECONDARY_GAP_COLUMN] = (
+        analyzed["open"] - analyzed["Moving_Average"]
+    ) / analyzed["Moving_Average"]
     analyzed["condition"] = (
         (analyzed["Moving_Average"] > analyzed["open"]).fillna(False).astype(int)
     )
@@ -71,9 +81,7 @@ def build_default_output_path(input_path: Path) -> Path:
 
 
 def render_filtered_rows(dataframe: pd.DataFrame) -> str:
-    display_columns = DISPLAY_COLUMNS
-    if "symbol" in dataframe.columns:
-        display_columns = ["symbol", *DISPLAY_COLUMNS]
+    display_columns = ordered_output_columns(dataframe, DISPLAY_COLUMNS)
 
     displayed = dataframe[display_columns]
     if displayed.empty:
@@ -85,4 +93,32 @@ def save_dataframe(dataframe: pd.DataFrame, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ensure_supported_file_suffix(output_path.suffix.lower(), kind="output")
     output_dataframe = ensure_symbol_column(dataframe)
+    output_dataframe = output_dataframe[ordered_output_columns(output_dataframe)]
     output_dataframe.to_csv(output_path, index=False, date_format="%Y-%m-%d")
+
+
+def ordered_output_columns(
+    dataframe: pd.DataFrame, trailing_columns: list[str] | None = None
+) -> list[str]:
+    leading_columns: list[str] = []
+    if "symbol" in dataframe.columns:
+        leading_columns.append("symbol")
+
+    for column in (PRIMARY_GAP_COLUMN, SECONDARY_GAP_COLUMN):
+        if column in dataframe.columns:
+            leading_columns.append(column)
+
+    if trailing_columns is None:
+        return leading_columns + [
+            column for column in dataframe.columns if column not in leading_columns
+        ]
+
+    ordered_columns = [
+        *leading_columns,
+        *[
+            column
+            for column in trailing_columns
+            if column in dataframe.columns and column not in leading_columns
+        ],
+    ]
+    return ordered_columns
