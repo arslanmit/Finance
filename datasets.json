@@ -47,6 +47,15 @@
         "provider": "yahoo",
         "symbol": "AAPL"
       }
+    },
+    {
+      "id": "googl",
+      "label": "Yahoo symbol GOOGL",
+      "path": "data/generated/googl.csv",
+      "refresh": {
+        "provider": "yahoo",
+        "symbol": "GOOGL"
+      }
     }
   ]
 }
