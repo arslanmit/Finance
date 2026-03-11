@@ -20,7 +20,12 @@ from .errors import FinanceCliError
 from .models import DatasetConfig, RefreshSummary, ResolvedSource
 from .refresh import refresh_selected_source
 from .registry import add_dataset, get_dataset, load_registry, remove_dataset, save_registry
-from .sources import load_dataframe, resolve_custom_source, resolve_dataset_source
+from .sources import (
+    ensure_symbol_column,
+    load_dataframe,
+    resolve_custom_source,
+    resolve_dataset_source,
+)
 
 
 @dataclass(frozen=True)
@@ -326,6 +331,10 @@ def execute_analysis(
         print_refresh_summary(summary)
 
     raw_dataframe = load_dataframe(source.input_path, source.sheet_name)
+    raw_dataframe = ensure_symbol_column(
+        raw_dataframe,
+        None if source.dataset is None else source.dataset.symbol,
+    )
     prepared_dataframe = prepare_dataframe(raw_dataframe, months)
     analyzed_dataframe = analyze_dataframe(prepared_dataframe, months)
 

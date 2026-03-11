@@ -85,3 +85,38 @@ def test_write_workbook_rows_preserves_symbol_first_column(tmp_path: Path) -> No
     assert sheet.cell(row=1, column=1).value == "symbol"
     assert sheet.cell(row=2, column=1).value == "SPY"
     assert sheet.cell(row=2, column=2).value.date().isoformat() == "2024-03-01"
+
+
+def test_write_workbook_rows_adds_symbol_first_column_when_missing(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "nvda.xlsx"
+    with pd.ExcelWriter(workbook_path) as writer:
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2024-01-01")],
+                "open": [10.0],
+                "high": [11.0],
+                "low": [9.0],
+                "close": [10.5],
+                "volume": [100],
+            }
+        ).to_excel(writer, sheet_name="Sheet1", index=False)
+
+    source = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-02-01", "2024-03-01"]),
+            "open": [12.0, 11.0],
+            "high": [13.0, 12.0],
+            "low": [11.0, 10.0],
+            "close": [12.5, 11.5],
+            "volume": [110, 120],
+        }
+    )
+
+    write_workbook_rows(workbook_path, source, "Sheet1", "NVDA")
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Sheet1"]
+    headers = [sheet.cell(row=1, column=index).value for index in range(1, 8)]
+    assert headers == ["symbol", "date", "open", "high", "low", "close", "volume"]
+    assert sheet.cell(row=2, column=1).value == "NVDA"
+    assert sheet.cell(row=2, column=2).value.date().isoformat() == "2024-03-01"

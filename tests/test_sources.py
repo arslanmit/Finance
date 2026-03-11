@@ -6,6 +6,7 @@ import pytest
 from finance_cli.errors import SourceError
 from finance_cli.models import DatasetConfig
 from finance_cli.sources import (
+    ensure_symbol_column,
     load_dataframe,
     resolve_custom_source,
     resolve_dataset_source,
@@ -98,3 +99,21 @@ def test_load_dataframe_normalizes_column_names(tmp_path: Path) -> None:
     dataframe = load_dataframe(csv_path, sheet_name=None)
 
     assert list(dataframe.columns) == ["date", "open"]
+
+
+def test_ensure_symbol_column_inserts_symbol_first() -> None:
+    dataframe = pd.DataFrame({"date": ["2024-01-01"], "open": [10]})
+
+    normalized = ensure_symbol_column(dataframe, symbol="NVDA")
+
+    assert list(normalized.columns) == ["symbol", "date", "open"]
+    assert normalized.iloc[0]["symbol"] == "NVDA"
+
+
+def test_ensure_symbol_column_reorders_existing_symbol_column() -> None:
+    dataframe = pd.DataFrame({"date": ["2024-01-01"], "symbol": [""], "open": [10]})
+
+    normalized = ensure_symbol_column(dataframe, symbol="SPY")
+
+    assert list(normalized.columns) == ["symbol", "date", "open"]
+    assert normalized.iloc[0]["symbol"] == "SPY"

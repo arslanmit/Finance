@@ -11,6 +11,7 @@ from .errors import SourceError
 from .models import DatasetConfig, ResolvedSource
 
 SUPPORTED_FILE_SUFFIXES = {".csv", ".xlsx", ".xls"}
+SYMBOL_COLUMN = "symbol"
 SheetChooser = Callable[[list[str], Path], str]
 
 
@@ -107,6 +108,23 @@ def normalize_columns(columns: list[object]) -> list[str]:
         normalized_columns.append(normalized)
 
     return normalized_columns
+
+
+def ensure_symbol_column(dataframe: pd.DataFrame, symbol: str | None = None) -> pd.DataFrame:
+    if SYMBOL_COLUMN not in dataframe.columns and symbol is None:
+        return dataframe
+
+    normalized = dataframe.copy()
+    if SYMBOL_COLUMN not in normalized.columns:
+        normalized.insert(0, SYMBOL_COLUMN, symbol)
+        return normalized
+
+    if symbol is not None:
+        symbol_values = normalized[SYMBOL_COLUMN].astype("string").str.strip()
+        normalized[SYMBOL_COLUMN] = symbol_values.mask(symbol_values == "", pd.NA).fillna(symbol)
+
+    ordered_columns = [SYMBOL_COLUMN, *[column for column in normalized.columns if column != SYMBOL_COLUMN]]
+    return normalized[ordered_columns]
 
 
 def load_dataframe(input_path: Path, sheet_name: str | None) -> pd.DataFrame:

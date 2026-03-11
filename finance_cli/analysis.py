@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from .errors import AnalysisError
-from .sources import ensure_supported_file_suffix
+from .sources import ensure_supported_file_suffix, ensure_symbol_column
 
 DISPLAY_COLUMNS = ["date", "open", "Moving_Average", "condition"]
 
@@ -74,15 +74,16 @@ def save_dataframe(dataframe: pd.DataFrame, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     suffix = output_path.suffix.lower()
     ensure_supported_file_suffix(suffix, kind="output")
+    output_dataframe = ensure_symbol_column(dataframe)
 
     if suffix == ".csv":
-        dataframe.to_csv(output_path, index=False)
+        output_dataframe.to_csv(output_path, index=False)
         return
     if suffix == ".xlsx":
-        dataframe.to_excel(output_path, index=False)
+        output_dataframe.to_excel(output_path, index=False)
         return
 
-    write_xls(dataframe, output_path)
+    write_xls(output_dataframe, output_path)
 
 
 def write_xls(dataframe: pd.DataFrame, output_path: Path) -> None:

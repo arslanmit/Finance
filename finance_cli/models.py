@@ -40,6 +40,10 @@ class DatasetConfig:
     def supports_refresh(self) -> bool:
         return self.refresh is not None
 
+    @property
+    def symbol(self) -> str | None:
+        return None if self.refresh is None else self.refresh.symbol
+
     def to_record(self) -> dict[str, object]:
         return {
             "id": self.id,

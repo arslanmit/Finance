@@ -250,12 +250,27 @@ def get_workbook_layout(worksheet) -> tuple[list[str], bool]:
     raise RefreshError(f"Unexpected workbook headers: {headers}")
 
 
+def ensure_symbol_workbook_layout(worksheet) -> None:
+    headers = [
+        worksheet.cell(row=1, column=index).value
+        for index in range(1, len(EXPECTED_HEADERS_WITH_SYMBOL) + 1)
+    ]
+    if headers == EXPECTED_HEADERS_WITH_SYMBOL:
+        return
+    if headers[: len(EXPECTED_HEADERS)] == EXPECTED_HEADERS:
+        worksheet.insert_cols(1)
+        worksheet.cell(row=1, column=1).value = SYMBOL_HEADER
+        return
+    raise RefreshError(f"Unexpected workbook headers: {headers}")
+
+
 def write_workbook_rows(workbook_path: Path, source: pd.DataFrame, sheet_name: str, symbol: str) -> None:
     workbook = load_workbook(workbook_path)
     if sheet_name not in workbook.sheetnames:
         raise RefreshError(f"Sheet '{sheet_name}' was not found in {workbook_path}.")
 
     worksheet = workbook[sheet_name]
+    ensure_symbol_workbook_layout(worksheet)
     headers, include_symbol_column = get_workbook_layout(worksheet)
     header_count = len(headers)
 

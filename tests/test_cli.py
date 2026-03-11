@@ -85,6 +85,46 @@ def test_run_command_with_dataset(tmp_path: Path, monkeypatch, capsys) -> None:
     assert (tmp_path / "output" / "sample_processed.csv").exists()
 
 
+def test_run_command_with_refreshable_excel_dataset_writes_symbol_first(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "datasets.json"
+    workbook_path = tmp_path / "live.xlsx"
+    with pd.ExcelWriter(workbook_path) as writer:
+        pd.DataFrame(
+            {
+                "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+                "open": [10, 12, 11],
+            }
+        ).to_excel(writer, sheet_name="Sheet1", index=False)
+    write_registry(
+        config_path,
+        [
+            {
+                "id": "live",
+                "label": "Live Workbook",
+                "path": "live.xlsx",
+                "sheet": "Sheet1",
+                "refresh": {"provider": "yahoo", "symbol": "NVDA"},
+            }
+        ],
+    )
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+
+    code = main(["run", "--dataset", "live", "--months", "2"])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Processed data saved to:" in output
+
+    processed = pd.read_excel(tmp_path / "output" / "live_processed.xlsx")
+    assert list(processed.columns)[:3] == ["symbol", "date", "open"]
+    assert processed.iloc[0]["symbol"] == "NVDA"
+
+
 def test_run_command_with_custom_file(tmp_path: Path, monkeypatch, capsys) -> None:
     csv_path = tmp_path / "sample.csv"
     output_path = tmp_path / "custom_output.csv"
