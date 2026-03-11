@@ -204,7 +204,7 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
     print("Choose a dataset:\n")
     menu_items = build_wizard_menu_items(datasets)
 
-    primary_items = [item for item in menu_items if item.action in {"dataset-default", "create", "custom"}]
+    primary_items = [item for item in menu_items if item.action in {"dataset-primary", "create", "custom"}]
     other_items = [item for item in menu_items if item.action == "dataset-other"]
 
     for index, item in enumerate(primary_items, start=1):
@@ -234,17 +234,21 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
 
 
 def build_wizard_menu_items(datasets: list[DatasetConfig]) -> list[WizardMenuItem]:
-    default_dataset = next((dataset for dataset in datasets if dataset.id == "default"), None)
-    other_datasets = [dataset for dataset in datasets if dataset.id != "default"]
+    sorted_datasets = sort_datasets_for_display(datasets)
+    primary_dataset = next(
+        (dataset for dataset in sorted_datasets if dataset.source_group == "live"),
+        None,
+    )
+    other_datasets = [dataset for dataset in sorted_datasets if dataset != primary_dataset]
 
     menu_items: list[WizardMenuItem] = []
-    if default_dataset is not None:
+    if primary_dataset is not None:
         menu_items.append(
             WizardMenuItem(
-                alias=default_dataset.id,
-                label=dataset_menu_label(default_dataset),
-                action="dataset-default",
-                dataset=default_dataset,
+                alias=primary_dataset.id,
+                label=dataset_menu_label(primary_dataset),
+                action="dataset-primary",
+                dataset=primary_dataset,
             )
         )
 
@@ -278,13 +282,25 @@ def build_wizard_menu_items(datasets: list[DatasetConfig]) -> list[WizardMenuIte
 
 def dataset_menu_label(dataset: DatasetConfig) -> str:
     refresh_tag = " [refresh available]" if dataset.supports_refresh else ""
-    return f"{dataset.id} ({dataset.file_name}){refresh_tag}"
+    return f"{dataset.id} [{dataset.source_group}] ({dataset.file_name}){refresh_tag}"
+
+
+def sort_datasets_for_display(datasets: list[DatasetConfig]) -> list[DatasetConfig]:
+    source_rank = {"live": 0, "generated": 1, "imported": 2}
+    return sorted(
+        datasets,
+        key=lambda dataset: (
+            source_rank.get(dataset.source_group, 99),
+            dataset.file_name.lower(),
+            dataset.id.lower(),
+        ),
+    )
 
 
 def select_wizard_menu_item(
     item: WizardMenuItem,
 ) -> WizardSourceChoice:
-    if item.action in {"dataset-default", "dataset-other"}:
+    if item.action in {"dataset-primary", "dataset-other"}:
         if item.dataset is None:
             raise FinanceCliError("Wizard dataset selection is invalid.")
         return WizardSourceChoice(resolve_dataset_source(item.dataset))
@@ -427,9 +443,9 @@ def print_dataset_refresh_summary(dataset: DatasetConfig, summary: RefreshSummar
 
 def print_dataset_list(datasets: list[DatasetConfig]) -> None:
     print("Available datasets:\n")
-    for dataset in datasets:
+    for dataset in sort_datasets_for_display(datasets):
         refresh_text = "yes" if dataset.supports_refresh else "no"
         print(
-            f"- {dataset.id}: {dataset.id} | file: {dataset.file_name} | "
+            f"- {dataset.id}: source={dataset.source_group} | file: {dataset.file_name} | "
             f"path: {dataset.path} | refresh: {refresh_text}"
         )

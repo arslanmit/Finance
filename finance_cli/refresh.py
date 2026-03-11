@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from .catalog import LIVE_DATA_DIR
 from .errors import RefreshError
 from .models import RefreshSummary, ResolvedSource
 from .sources import ensure_symbol_column
 
-DEFAULT_DATASET_PATH = Path("data/live/default.csv")
 DEFAULT_SYMBOL = "500.PA"
 SUPPORTED_REFRESH_PROVIDER = "yahoo"
 EARLIEST_REQUEST_DATE = "2010-01-01"
@@ -58,15 +58,33 @@ def refresh_selected_source(source: ResolvedSource) -> RefreshSummary:
     return refresh_yahoo_monthly_csv(
         source.input_path,
         symbol=dataset.refresh.symbol,
-        strict_validation=is_default_refresh_target(source),
+        strict_validation=is_primary_live_refresh_target(source),
     )
 
 
-def is_default_refresh_target(source: ResolvedSource) -> bool:
+def is_primary_live_refresh_target(source: ResolvedSource) -> bool:
     dataset = source.dataset
     if dataset is None or dataset.refresh is None:
         return False
-    return dataset.path == DEFAULT_DATASET_PATH.as_posix() and dataset.refresh.symbol == DEFAULT_SYMBOL
+    primary_live_dataset_path = get_primary_live_dataset_path(dataset.base_dir)
+    if primary_live_dataset_path is None:
+        return False
+    return (
+        dataset.resolved_path == primary_live_dataset_path
+        and dataset.refresh.symbol == DEFAULT_SYMBOL
+    )
+
+
+def get_primary_live_dataset_path(base_dir: Path | None = None) -> Path | None:
+    root = Path("." if base_dir is None else base_dir).resolve(strict=False)
+    live_dir = root / LIVE_DATA_DIR
+    if not live_dir.exists():
+        return None
+
+    live_paths = sorted(live_dir.glob("*.csv"))
+    if not live_paths:
+        return None
+    return live_paths[0].resolve(strict=False)
 
 
 def build_chart_url(symbol: str, period1: int, period2: int) -> str:
@@ -245,9 +263,15 @@ def refresh_yahoo_monthly_csv(
     )
 
 
-def refresh_default_dataset(data_path: Path = DEFAULT_DATASET_PATH) -> RefreshSummary:
+def refresh_default_dataset(data_path: Path | None = None) -> RefreshSummary:
+    target_path = data_path
+    if target_path is None:
+        target_path = get_primary_live_dataset_path()
+    if target_path is None:
+        raise RefreshError("No live dataset was found in data/live.")
+
     return refresh_yahoo_monthly_csv(
-        data_path,
+        target_path,
         symbol=DEFAULT_SYMBOL,
         strict_validation=True,
     )

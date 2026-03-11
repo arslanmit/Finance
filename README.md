@@ -45,7 +45,7 @@ python3 dynamic_range_average.py run --dataset default --months 6
 Run your own CSV file:
 
 ```bash
-python3 dynamic_range_average.py run --file data/LU1681048804.csv --months 12
+python3 dynamic_range_average.py run --file data/data_to_pyhton.csv --months 12
 ```
 
 Run a discovered refreshable dataset and refresh it first:
@@ -78,7 +78,7 @@ Dataset ids come from file names. For example:
 
 - `data/live/default.csv` -> `default`
 - `data/generated/nvda.csv` -> `nvda`
-- `data/imported/amundi_csv.csv` -> `amundi_csv`
+- `data/imported/sample_imported.csv` -> `sample_imported`
 
 Files outside those folders are never auto-discovered, but they can still be used with `run --file`.
 
@@ -126,7 +126,7 @@ python3 dynamic_range_average.py run --dataset spy --months 6
 Import an existing CSV into managed storage:
 
 ```bash
-python3 dynamic_range_average.py datasets add --id amundi_copy --path data/LU1681048804.csv
+python3 dynamic_range_average.py datasets add --id sample_imported --path data/data_to_pyhton.csv
 ```
 
 Import an existing refreshable CSV into `data/live`:
@@ -138,7 +138,7 @@ python3 dynamic_range_average.py datasets add --id live_sp500 --path data/live/d
 Remove a discovered dataset:
 
 ```bash
-python3 dynamic_range_average.py datasets remove --id amundi_copy
+python3 dynamic_range_average.py datasets remove --id sample_imported
 ```
 
 Refresh one live dataset:

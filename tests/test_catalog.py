@@ -27,14 +27,14 @@ def write_csv(path: Path, *, symbol: str | None = None) -> None:
 def test_discover_datasets_scans_only_managed_directories(tmp_path: Path) -> None:
     write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
     write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
-    write_csv(tmp_path / "data" / "imported" / "amundi_csv.csv")
+    write_csv(tmp_path / "data" / "imported" / "sample_imported.csv")
     write_csv(tmp_path / "data" / "ignored.csv", symbol="SPY")
 
     datasets = discover_datasets(tmp_path)
 
-    assert [dataset.id for dataset in datasets] == ["amundi_csv", "default", "nvda"]
+    assert [dataset.id for dataset in datasets] == ["default", "nvda", "sample_imported"]
     assert get_dataset("default", datasets).symbol == "500.PA"
-    assert get_dataset("amundi_csv", datasets).supports_refresh is False
+    assert get_dataset("sample_imported", datasets).supports_refresh is False
 
 
 def test_discover_datasets_rejects_duplicate_ids(tmp_path: Path) -> None:

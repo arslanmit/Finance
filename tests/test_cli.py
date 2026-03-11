@@ -40,18 +40,18 @@ def monthly_frame() -> pd.DataFrame:
 
 def test_datasets_list_command_uses_discovery(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
-    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
+    write_csv(tmp_path / "data" / "live" / "sp500_live.csv", symbol="500.PA")
     write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
-    write_csv(tmp_path / "data" / "imported" / "amundi_csv.csv")
+    write_csv(tmp_path / "data" / "imported" / "sample_imported.csv")
     write_csv(tmp_path / "data" / "ignored.csv", symbol="SPY")
 
     code = main(["datasets", "list"])
     output = capsys.readouterr().out
 
     assert code == 0
-    assert "- default: default | file: default.csv" in output
-    assert "- nvda: nvda | file: nvda.csv" in output
-    assert "- amundi_csv: amundi_csv | file: amundi_csv.csv" in output
+    assert "- sp500_live: source=live | file: sp500_live.csv" in output
+    assert "- nvda: source=generated | file: nvda.csv" in output
+    assert "- sample_imported: source=imported | file: sample_imported.csv" in output
     assert "ignored" not in output
 
 
@@ -60,7 +60,7 @@ def test_datasets_list_command_uses_discovery(tmp_path: Path, monkeypatch, capsy
     [
         ("data/live/default.csv", "default", "500.PA"),
         ("data/generated/nvda.csv", "nvda", "NVDA"),
-        ("data/imported/amundi_csv.csv", "amundi_csv", None),
+        ("data/imported/sample_imported.csv", "sample_imported", None),
     ],
 )
 def test_run_command_with_discovered_dataset(
@@ -244,7 +244,7 @@ def test_datasets_refresh_all_uses_symbol_column_presence(
     monkeypatch.chdir(tmp_path)
     write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
     write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
-    write_csv(tmp_path / "data" / "imported" / "amundi_csv.csv")
+    write_csv(tmp_path / "data" / "imported" / "sample_imported.csv")
     refreshed_ids: list[str] = []
 
     def fake_refresh(source):
@@ -265,7 +265,7 @@ def test_datasets_refresh_all_uses_symbol_column_presence(
 
     assert code == 0
     assert refreshed_ids == ["default", "nvda"]
-    assert "amundi_csv" not in output
+    assert "sample_imported" not in output
 
 
 def test_datasets_refresh_all_errors_when_none_are_refreshable(
@@ -285,10 +285,10 @@ def test_datasets_refresh_all_errors_when_none_are_refreshable(
 
 def test_wizard_menu_order_uses_discovered_datasets(tmp_path: Path) -> None:
     write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
-    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
-    write_csv(tmp_path / "data" / "imported" / "amundi_csv.csv")
+    write_csv(tmp_path / "data" / "live" / "sp500_live.csv", symbol="500.PA")
+    write_csv(tmp_path / "data" / "imported" / "sample_imported.csv")
 
     items = build_wizard_menu_items(discover_datasets(tmp_path))
 
-    assert [item.alias for item in items] == ["default", "create", "custom", "amundi_csv", "nvda"]
-    assert items[0].label == "default (default.csv) [refresh available]"
+    assert [item.alias for item in items] == ["sp500_live", "create", "custom", "nvda", "sample_imported"]
+    assert items[0].label == "sp500_live [live] (sp500_live.csv) [refresh available]"

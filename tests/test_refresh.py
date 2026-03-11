@@ -7,6 +7,8 @@ from finance_cli.errors import RefreshError
 from finance_cli.models import DatasetConfig, RefreshMetadata, ResolvedSource
 from finance_cli.refresh import (
     create_backup,
+    get_primary_live_dataset_path,
+    refresh_default_dataset,
     refresh_yahoo_monthly_csv,
     validate_refreshable_source,
     write_source_csv,
@@ -138,3 +140,33 @@ def test_refresh_yahoo_monthly_csv_rewrites_csv_and_returns_summary(
     assert list(rewritten.columns) == ["symbol", "date", "open", "high", "low", "close", "volume"]
     assert rewritten.iloc[0]["symbol"] == "NVDA"
     assert rewritten.iloc[0]["date"] == "2024-05-01"
+
+
+def test_get_primary_live_dataset_path_is_derived_from_live_folder(tmp_path: Path) -> None:
+    write_csv(tmp_path / "data" / "live" / "sp500_live.csv", include_symbol=True)
+    write_csv(tmp_path / "data" / "live" / "zzz.csv", include_symbol=True)
+
+    primary = get_primary_live_dataset_path(tmp_path)
+
+    assert primary == (tmp_path / "data" / "live" / "sp500_live.csv").resolve(strict=False)
+
+
+def test_refresh_default_dataset_uses_primary_live_file_when_not_provided(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "live" / "sp500_live.csv", include_symbol=True)
+
+    monkeypatch.setattr(
+        "finance_cli.refresh.refresh_yahoo_monthly_csv",
+        lambda path, symbol, strict_validation: (path, symbol, strict_validation),
+    )
+
+    result = refresh_default_dataset()
+
+    assert result == (
+        (tmp_path / "data" / "live" / "sp500_live.csv").resolve(strict=False),
+        "500.PA",
+        True,
+    )
