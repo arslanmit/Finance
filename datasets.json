@@ -57,6 +57,16 @@
         "provider": "yahoo",
         "symbol": "NVDA"
       }
+    },
+    {
+      "id": "aapl",
+      "label": "Yahoo symbol AAPL",
+      "path": "data/generated/aapl.xlsx",
+      "sheet": "Sheet1",
+      "refresh": {
+        "provider": "yahoo",
+        "symbol": "AAPL"
+      }
     }
   ]
 }
