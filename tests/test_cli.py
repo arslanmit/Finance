@@ -292,12 +292,13 @@ def test_datasets_refresh_all_errors_when_no_generated_dataset_is_refreshable(
     assert "No generated datasets support live refresh." in error
 
 
-def test_wizard_menu_order_uses_generated_datasets_then_actions(tmp_path: Path) -> None:
+def test_wizard_menu_order_shows_actions_before_generated_datasets(tmp_path: Path) -> None:
     write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
     write_csv(tmp_path / "data" / "generated" / "500_pa.csv", symbol="500.PA")
     write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
 
     items = build_wizard_menu_items(discover_datasets(tmp_path))
 
-    assert [item.alias for item in items] == ["500_pa", "nvda", "create", "custom"]
-    assert items[0].label == "500_pa [refresh available]"
+    assert [item.alias for item in items] == ["create", "custom", "500_pa", "nvda"]
+    assert items[0].label == "create - Create a new dataset from a Yahoo symbol"
+    assert items[2].label == "500_pa [refresh available]"

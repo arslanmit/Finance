@@ -224,26 +224,26 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
 def build_wizard_menu_items(datasets: list[DatasetConfig]) -> list[WizardMenuItem]:
     menu_items = [
         WizardMenuItem(
-            alias=dataset.id,
-            label=dataset_menu_label(dataset),
-            action="dataset",
-            dataset=dataset,
-        )
-        for dataset in sort_datasets_for_display(datasets)
-    ]
-    menu_items.append(
-        WizardMenuItem(
             alias="create",
             label="create - Create a new dataset from a Yahoo symbol",
             action="create",
         )
-    )
+    ]
     menu_items.append(
         WizardMenuItem(
             alias="custom",
             label="custom - Use your own CSV file path",
             action="custom",
         )
+    )
+    menu_items.extend(
+        WizardMenuItem(
+            alias=dataset.id,
+            label=dataset_menu_label(dataset),
+            action="dataset",
+            dataset=dataset,
+        )
+        for dataset in sort_datasets_for_display(datasets)
     )
     return menu_items
 
