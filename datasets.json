@@ -56,6 +56,24 @@
         "provider": "yahoo",
         "symbol": "GOOGL"
       }
+    },
+    {
+      "id": "goog",
+      "label": "Yahoo symbol GOOG",
+      "path": "data/generated/goog.csv",
+      "refresh": {
+        "provider": "yahoo",
+        "symbol": "GOOG"
+      }
+    },
+    {
+      "id": "msft",
+      "label": "Yahoo symbol MSFT",
+      "path": "data/generated/msft.csv",
+      "refresh": {
+        "provider": "yahoo",
+        "symbol": "MSFT"
+      }
     }
   ]
 }

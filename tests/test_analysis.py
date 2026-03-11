@@ -61,6 +61,23 @@ def test_analyze_dataframe_and_render_output() -> None:
     assert "2024-03-01" in rendered
 
 
+def test_render_filtered_rows_shows_symbol_when_present() -> None:
+    dataframe = pd.DataFrame(
+        {
+            "symbol": ["NVDA", "NVDA", "NVDA"],
+            "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+            "open": [10, 12, 11],
+        }
+    )
+
+    prepared = prepare_dataframe(dataframe, months=2)
+    analyzed = analyze_dataframe(prepared, months=2)
+    rendered = render_filtered_rows(analyzed)
+
+    assert "symbol" in rendered
+    assert "NVDA" in rendered
+
+
 def test_build_default_output_path_always_returns_csv() -> None:
     path = build_default_output_path(Path("data/example.xlsx"))
 

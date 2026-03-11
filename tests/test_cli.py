@@ -102,6 +102,7 @@ def test_run_command_with_refreshable_csv_dataset_writes_symbol_first(
 
     assert code == 0
     assert "Processed data saved to:" in output
+    assert "NVDA" in output
 
     processed = pd.read_csv(tmp_path / "output" / "live_processed.csv")
     assert list(processed.columns)[:3] == ["symbol", "date", "open"]

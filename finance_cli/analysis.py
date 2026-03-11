@@ -64,7 +64,11 @@ def build_default_output_path(input_path: Path) -> Path:
 
 
 def render_filtered_rows(dataframe: pd.DataFrame) -> str:
-    filtered = dataframe[dataframe["condition"] == 1][DISPLAY_COLUMNS]
+    display_columns = DISPLAY_COLUMNS
+    if "symbol" in dataframe.columns:
+        display_columns = ["symbol", *DISPLAY_COLUMNS]
+
+    filtered = dataframe[dataframe["condition"] == 1][display_columns]
     if filtered.empty:
         return "No rows matched the Moving_Average > open condition."
     return filtered.to_string(index=False)
