@@ -58,6 +58,7 @@ logs/
 
 # Local development
 local_settings.py
+tmp/refresh_backups/
 
 # Byte-compiled / optimized / DLL files
 *.py[cod]

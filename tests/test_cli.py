@@ -373,6 +373,48 @@ def test_wizard_happy_path(tmp_path: Path, monkeypatch, capsys) -> None:
     assert (tmp_path / "output" / "sample_processed.csv").exists()
 
 
+def test_wizard_menu_shows_default_then_create_then_custom_then_others(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "datasets.json"
+    default_csv = tmp_path / "default.csv"
+    extra_csv = tmp_path / "extra.csv"
+    write_csv(default_csv)
+    write_csv(extra_csv)
+    write_registry(
+        config_path,
+        [
+            {
+                "id": "default",
+                "label": "Default CSV",
+                "path": "default.csv",
+                "refresh": {"provider": "yahoo", "symbol": "500.PA"},
+            },
+            {
+                "id": "extra",
+                "label": "Extra CSV",
+                "path": "extra.csv",
+                "refresh": None,
+            },
+        ],
+    )
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+    responses = iter(["1", "2", "n", ""])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
+
+    code = main([])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert output.index("default - Default CSV") < output.index("create - Create a new dataset")
+    assert output.index("create - Create a new dataset") < output.index("custom - Use your own CSV file path")
+    assert output.index("custom - Use your own CSV file path") < output.index("others:")
+    assert output.index("others:") < output.index("extra - Extra CSV")
+
+
 def test_wizard_create_symbol_and_run(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     config_path = tmp_path / "datasets.json"
@@ -399,7 +441,7 @@ def test_wizard_create_symbol_and_run(tmp_path: Path, monkeypatch, capsys) -> No
         return dataset
 
     monkeypatch.setattr("finance_cli.cli.create_and_register_symbol_dataset", fake_create)
-    responses = iter(["2", "SPY", "2", ""])
+    responses = iter(["1", "SPY", "2", ""])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
 
     code = main([])

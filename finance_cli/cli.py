@@ -31,6 +31,16 @@ class WizardSourceChoice:
     created_now: bool = False
 
 
+@dataclass(frozen=True)
+class WizardMenuItem:
+    """Selectable menu item shown in the guided wizard."""
+
+    alias: str
+    label: str
+    action: str
+    dataset: DatasetConfig | None = None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Finance dataset analysis CLI with guided and command-based workflows."
@@ -194,13 +204,19 @@ def run_wizard() -> None:
 
 def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
     print("Choose a dataset:\n")
-    for index, dataset in enumerate(datasets, start=1):
-        refresh_tag = " [refresh available]" if dataset.supports_refresh else ""
-        print(f"{index}. {dataset.id} - {dataset.label} ({dataset.file_name}){refresh_tag}")
-    custom_index = len(datasets) + 1
-    create_index = len(datasets) + 2
-    print(f"{custom_index}. custom - Use your own CSV file path")
-    print(f"{create_index}. create - Create a new dataset from a Yahoo symbol")
+    menu_items = build_wizard_menu_items(datasets)
+
+    primary_items = [item for item in menu_items if item.action in {"dataset-default", "create", "custom"}]
+    other_items = [item for item in menu_items if item.action == "dataset-other"]
+
+    for index, item in enumerate(primary_items, start=1):
+        print(f"{index}. {item.label}")
+
+    if other_items:
+        print("others:")
+        offset = len(primary_items)
+        for index, item in enumerate(other_items, start=offset + 1):
+            print(f"{index}. {item.label}")
 
     while True:
         response = input("\nEnter a dataset number or alias: ").strip()
@@ -209,23 +225,77 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
 
         if response.isdigit():
             selection = int(response)
-            if 1 <= selection <= len(datasets):
-                return WizardSourceChoice(resolve_dataset_source(datasets[selection - 1]))
-            if selection == custom_index:
-                return prompt_for_custom_source()
-            if selection == create_index:
-                return prompt_for_symbol_dataset(datasets)
+            if 1 <= selection <= len(menu_items):
+                return select_wizard_menu_item(menu_items[selection - 1], datasets)
 
-        for dataset in datasets:
-            if response == dataset.id:
-                return WizardSourceChoice(resolve_dataset_source(dataset))
-
-        if response.lower() == "custom":
-            return prompt_for_custom_source()
-        if response.lower() == "create":
-            return prompt_for_symbol_dataset(datasets)
+        for item in menu_items:
+            if response.lower() == item.alias:
+                return select_wizard_menu_item(item, datasets)
 
         print("Invalid selection. Choose a listed number, dataset alias, 'custom', or 'create'.")
+
+
+def build_wizard_menu_items(datasets: list[DatasetConfig]) -> list[WizardMenuItem]:
+    default_dataset = next((dataset for dataset in datasets if dataset.id == "default"), None)
+    other_datasets = [dataset for dataset in datasets if dataset.id != "default"]
+
+    menu_items: list[WizardMenuItem] = []
+    if default_dataset is not None:
+        menu_items.append(
+            WizardMenuItem(
+                alias=default_dataset.id,
+                label=dataset_menu_label(default_dataset),
+                action="dataset-default",
+                dataset=default_dataset,
+            )
+        )
+
+    menu_items.append(
+        WizardMenuItem(
+            alias="create",
+            label="create - Create a new dataset from a Yahoo symbol",
+            action="create",
+        )
+    )
+    menu_items.append(
+        WizardMenuItem(
+            alias="custom",
+            label="custom - Use your own CSV file path",
+            action="custom",
+        )
+    )
+
+    for dataset in other_datasets:
+        menu_items.append(
+            WizardMenuItem(
+                alias=dataset.id,
+                label=dataset_menu_label(dataset),
+                action="dataset-other",
+                dataset=dataset,
+            )
+        )
+
+    return menu_items
+
+
+def dataset_menu_label(dataset: DatasetConfig) -> str:
+    refresh_tag = " [refresh available]" if dataset.supports_refresh else ""
+    return f"{dataset.id} - {dataset.label} ({dataset.file_name}){refresh_tag}"
+
+
+def select_wizard_menu_item(
+    item: WizardMenuItem,
+    datasets: list[DatasetConfig],
+) -> WizardSourceChoice:
+    if item.action in {"dataset-default", "dataset-other"}:
+        if item.dataset is None:
+            raise FinanceCliError("Wizard dataset selection is invalid.")
+        return WizardSourceChoice(resolve_dataset_source(item.dataset))
+    if item.action == "custom":
+        return prompt_for_custom_source()
+    if item.action == "create":
+        return prompt_for_symbol_dataset(datasets)
+    raise FinanceCliError("Unknown wizard menu item.")
 
 
 def prompt_for_custom_source() -> WizardSourceChoice:
