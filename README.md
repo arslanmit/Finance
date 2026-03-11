@@ -5,8 +5,8 @@ Simple command-line tool for analyzing ETF, stock, and similar market datasets w
 The app supports three main workflows:
 
 - run analysis on a registered dataset
-- run analysis on your own CSV or Excel file
-- create a brand-new dataset from a Yahoo Finance symbol such as `SPY`, `VOO`, `AAPL`, or `500.PA`
+- run analysis on your own CSV file
+- create a brand-new CSV dataset from a Yahoo Finance symbol such as `SPY`, `VOO`, `AAPL`, or `500.PA`
 
 ## Install
 
@@ -31,7 +31,7 @@ python3 dynamic_range_average.py
 The wizard can:
 
 - use an existing registered dataset
-- use a custom file
+- use a custom CSV file
 - create a new dataset from a Yahoo symbol
 
 ## Common Commands
@@ -42,7 +42,7 @@ Run a registered dataset:
 python3 dynamic_range_average.py run --dataset default --months 6
 ```
 
-Run your own file:
+Run your own CSV file:
 
 ```bash
 python3 dynamic_range_average.py run --file data/LU1681048804.csv --months 12
@@ -83,21 +83,21 @@ python3 dynamic_range_average.py datasets create --symbol AAPL
 What this does:
 
 - downloads full available monthly OHLCV history for the symbol
-- creates a workbook in `data/generated/`
+- creates a CSV file in `data/generated/`
 - registers the dataset in `datasets.json`
 - enables future refresh with the same Yahoo symbol
-- writes the symbol itself as the first column in the generated workbook
+- writes the symbol itself as the first column in the generated CSV
 
 Generated files use this pattern:
 
 ```text
-data/generated/<symbol_slug>.xlsx
+data/generated/<symbol_slug>.csv
 ```
 
 Examples:
 
-- `SPY` -> `data/generated/spy.xlsx`
-- `500.PA` -> `data/generated/500_pa.xlsx`
+- `SPY` -> `data/generated/spy.csv`
+- `500.PA` -> `data/generated/500_pa.csv`
 
 After creation, you can run the new dataset immediately:
 
@@ -115,16 +115,16 @@ List datasets:
 python3 dynamic_range_average.py datasets list
 ```
 
-Add an existing file manually:
+Add an existing CSV file manually:
 
 ```bash
-python3 dynamic_range_average.py datasets add --id amundi_copy --label "Amundi Copy" --path data/LU1681048804.xlsx
+python3 dynamic_range_average.py datasets add --id amundi_copy --label "Amundi Copy" --path data/LU1681048804.csv
 ```
 
-Add an existing refreshable workbook:
+Add an existing refreshable CSV:
 
 ```bash
-python3 dynamic_range_average.py datasets add --id live_sp500 --label "Live S&P 500" --path data/sp500_raw_data.xlsx --sheet Sheet1 --refresh-symbol 500.PA
+python3 dynamic_range_average.py datasets add --id live_sp500 --label "Live S&P 500" --path data/sp500_raw_data.csv --refresh-symbol 500.PA
 ```
 
 Remove a dataset:
@@ -164,32 +164,36 @@ The analysis logic is intentionally simple:
 
 ## Supported Input Files
 
-Supported input formats:
+Supported input format:
 
 - `.csv`
-- `.xlsx`
-- `.xls`
 
 Notes:
 
-- custom Excel files with one sheet are handled automatically
-- custom Excel files with multiple sheets require sheet selection in the wizard or `--sheet` in command mode
-- symbol-created datasets are always stored as `.xlsx`
+- Excel files are no longer supported
+- symbol-created and refreshed datasets are always stored as `.csv`
+- symbol-backed CSV files keep `symbol` as the first column
 
 ## Output
 
 By default the app writes:
 
 ```text
-output/<input_stem>_processed.<input_extension>
+output/<input_stem>_processed.csv
 ```
 
 Examples:
 
 - `data/LU1681048804.csv` -> `output/LU1681048804_processed.csv`
-- `data/generated/spy.xlsx` -> `output/spy_processed.xlsx`
+- `data/generated/spy.csv` -> `output/spy_processed.csv`
 
-You can override this with `--output`.
+You can override this with `--output`, but the output format must still be `.csv`.
+
+Refresh backups are written to:
+
+```text
+tmp/refresh_backups/<input_stem>.backup.<timestamp>.csv
+```
 
 ## Tests
 

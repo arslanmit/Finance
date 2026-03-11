@@ -1,4 +1,4 @@
-"""Create registered workbook datasets from Yahoo Finance symbols."""
+"""Create registered CSV datasets from Yahoo Finance symbols."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from .refresh import fetch_full_history_monthly_source
 from .registry import get_config_path, save_registry
 
 GENERATED_DATA_DIR = Path("data/generated")
-GENERATED_SHEET_NAME = "Sheet1"
 SYMBOL_COLUMN = "symbol"
 EXPECTED_COLUMNS = ["date", "open", "high", "low", "close", "volume"]
 
@@ -27,7 +26,7 @@ def normalize_symbol_slug(symbol: str) -> str:
 
 
 def build_generated_dataset_path(symbol_slug: str) -> Path:
-    return GENERATED_DATA_DIR / f"{symbol_slug}.xlsx"
+    return GENERATED_DATA_DIR / f"{symbol_slug}.csv"
 
 
 def create_and_register_symbol_dataset(
@@ -64,15 +63,14 @@ def create_and_register_symbol_dataset(
     validate_created_dataframe(dataframe, normalized_symbol)
 
     try:
-        write_created_workbook(dataframe, resolved_output_path, normalized_symbol)
+        write_created_csv(dataframe, resolved_output_path, normalized_symbol)
     except Exception as exc:
-        raise CreationError(f"Failed to write dataset workbook: {exc}") from exc
+        raise CreationError(f"Failed to write dataset CSV: {exc}") from exc
 
     dataset = DatasetConfig(
         id=symbol_slug,
         label=f"Yahoo symbol {normalized_symbol}",
         path=relative_path.as_posix(),
-        sheet=GENERATED_SHEET_NAME,
         refresh=RefreshMetadata(provider="yahoo", symbol=normalized_symbol),
         base_dir=base_dir,
     )
@@ -106,9 +104,8 @@ def validate_created_dataframe(dataframe: pd.DataFrame, symbol: str) -> None:
         raise CreationError(f"Yahoo Finance returned duplicate monthly dates for {symbol}.")
 
 
-def write_created_workbook(dataframe: pd.DataFrame, output_path: Path, symbol: str) -> None:
+def write_created_csv(dataframe: pd.DataFrame, output_path: Path, symbol: str) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     descending = dataframe.sort_values("date", ascending=False).reset_index(drop=True)
     descending.insert(0, SYMBOL_COLUMN, symbol)
-    with pd.ExcelWriter(output_path) as writer:
-        descending.to_excel(writer, sheet_name=GENERATED_SHEET_NAME, index=False)
+    descending.to_csv(output_path, index=False, date_format="%Y-%m-%d")

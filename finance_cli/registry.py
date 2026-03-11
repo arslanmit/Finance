@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .errors import RegistryError
 from .models import DatasetConfig, RefreshMetadata
-from .sources import SUPPORTED_FILE_SUFFIXES, get_excel_sheet_names
+from .sources import SUPPORTED_FILE_SUFFIXES
 
 DEFAULT_CONFIG_PATH = Path("datasets.json")
 CONFIG_ENV_VAR = "FINANCE_CLI_DATASETS_CONFIG"
@@ -65,15 +65,12 @@ def parse_dataset_entry(entry: object, base_dir: Path) -> DatasetConfig:
             "Each dataset entry must define non-empty 'id', 'label', and 'path' values."
         )
 
-    sheet_value = entry.get("sheet")
-    sheet = None if sheet_value in (None, "") else str(sheet_value).strip()
     refresh = parse_refresh_metadata(entry.get("refresh"), dataset_id)
 
     return DatasetConfig(
         id=dataset_id,
         label=label,
         path=path,
-        sheet=sheet,
         refresh=refresh,
         base_dir=base_dir,
     )
@@ -109,7 +106,6 @@ def add_dataset(
     dataset_id: str,
     label: str,
     path: str,
-    sheet: str | None = None,
     refresh_symbol: str | None = None,
     config_path: Path | None = None,
 ) -> DatasetConfig:
@@ -135,7 +131,6 @@ def add_dataset(
             f"Unsupported dataset format '{suffix}'. Supported formats: {supported}."
         )
 
-    resolved_sheet = resolve_registry_sheet(path=resolved_path, sheet=sheet)
     refresh = resolve_registry_refresh(
         suffix=suffix,
         refresh_symbol=refresh_symbol,
@@ -146,31 +141,11 @@ def add_dataset(
         id=dataset_id,
         label=label,
         path=path,
-        sheet=resolved_sheet,
         refresh=refresh,
         base_dir=base_dir,
     )
     datasets.append(dataset)
     return dataset
-
-
-def resolve_registry_sheet(path: Path, sheet: str | None) -> str | None:
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        if sheet is not None:
-            raise RegistryError("CSV datasets do not support sheets.")
-        return None
-
-    sheet_names = get_excel_sheet_names(path)
-    if sheet is not None:
-        if sheet not in sheet_names:
-            raise RegistryError(f"Sheet '{sheet}' was not found in {path}.")
-        return sheet
-    if len(sheet_names) == 1:
-        return sheet_names[0]
-    raise RegistryError(
-        f"{path} contains multiple sheets ({', '.join(sheet_names)}). Use --sheet."
-    )
 
 
 def resolve_registry_refresh(
@@ -181,9 +156,9 @@ def resolve_registry_refresh(
 ) -> RefreshMetadata | None:
     if refresh_symbol is None:
         return None
-    if suffix != ".xlsx":
+    if suffix != ".csv":
         raise RegistryError(
-            f"Dataset '{dataset_id}' can use --refresh-symbol only with .xlsx files."
+            f"Dataset '{dataset_id}' can use --refresh-symbol only with .csv files."
         )
     return RefreshMetadata(provider="yahoo", symbol=refresh_symbol.strip())
 

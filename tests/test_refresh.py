@@ -2,71 +2,76 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from openpyxl import load_workbook
 
 from finance_cli.errors import RefreshError
 from finance_cli.models import DatasetConfig, RefreshMetadata, ResolvedSource
-from finance_cli.refresh import validate_refreshable_source, write_workbook_rows
+from finance_cli.refresh import (
+    create_backup,
+    refresh_yahoo_monthly_csv,
+    validate_refreshable_source,
+    write_source_csv,
+)
+
+
+def write_csv(path: Path, include_symbol: bool = False) -> None:
+    dataframe = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01"],
+            "open": [10.0, 11.0],
+            "high": [11.0, 12.0],
+            "low": [9.0, 10.0],
+            "close": [10.5, 11.5],
+            "volume": [100, 110],
+        }
+    )
+    if include_symbol:
+        dataframe.insert(0, "symbol", "SPY")
+    dataframe.to_csv(path, index=False)
 
 
 def test_validate_refresh_rejects_custom_file(tmp_path: Path) -> None:
     csv_path = tmp_path / "sample.csv"
     csv_path.write_text("date,open\n2024-01-01,10\n", encoding="utf-8")
-    source = ResolvedSource(input_path=csv_path, sheet_name=None, dataset=None)
+    source = ResolvedSource(input_path=csv_path, dataset=None)
 
     with pytest.raises(RefreshError, match="registered datasets"):
         validate_refreshable_source(source)
 
 
-def test_validate_refresh_requires_sheet(tmp_path: Path) -> None:
-    workbook_path = tmp_path / "sample.xlsx"
-    workbook_path.write_text("", encoding="utf-8")
+def test_validate_refresh_rejects_non_csv_dataset(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "sample.xlsx"
+    dataset_path.write_text("placeholder", encoding="utf-8")
     dataset = DatasetConfig(
         id="sample",
         label="Sample",
         path="sample.xlsx",
-        sheet=None,
         refresh=RefreshMetadata(provider="yahoo", symbol="500.PA"),
         base_dir=tmp_path,
     )
-    source = ResolvedSource(input_path=workbook_path, sheet_name=None, dataset=dataset)
+    source = ResolvedSource(input_path=dataset_path, dataset=dataset)
 
-    with pytest.raises(RefreshError, match="configured Excel sheet"):
+    with pytest.raises(RefreshError, match=r"only \.csv datasets"):
         validate_refreshable_source(source)
 
 
 def test_validate_refresh_rejects_unsupported_provider(tmp_path: Path) -> None:
-    workbook_path = tmp_path / "sample.xlsx"
-    workbook_path.write_text("", encoding="utf-8")
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text("", encoding="utf-8")
     dataset = DatasetConfig(
         id="sample",
         label="Sample",
-        path="sample.xlsx",
-        sheet="Sheet1",
+        path="sample.csv",
         refresh=RefreshMetadata(provider="custom", symbol="500.PA"),
         base_dir=tmp_path,
     )
-    source = ResolvedSource(input_path=workbook_path, sheet_name="Sheet1", dataset=dataset)
+    source = ResolvedSource(input_path=csv_path, dataset=dataset)
 
     with pytest.raises(RefreshError, match="unsupported refresh provider"):
         validate_refreshable_source(source)
 
 
-def test_write_workbook_rows_preserves_symbol_first_column(tmp_path: Path) -> None:
-    workbook_path = tmp_path / "spy.xlsx"
-    with pd.ExcelWriter(workbook_path) as writer:
-        pd.DataFrame(
-            {
-                "symbol": ["SPY"],
-                "date": [pd.Timestamp("2024-01-01")],
-                "open": [10.0],
-                "high": [11.0],
-                "low": [9.0],
-                "close": [10.5],
-                "volume": [100],
-            }
-        ).to_excel(writer, sheet_name="Sheet1", index=False)
-
+def test_write_source_csv_preserves_symbol_first_column(tmp_path: Path) -> None:
+    csv_path = tmp_path / "spy.csv"
     source = pd.DataFrame(
         {
             "date": pd.to_datetime(["2024-02-01", "2024-03-01"]),
@@ -78,45 +83,57 @@ def test_write_workbook_rows_preserves_symbol_first_column(tmp_path: Path) -> No
         }
     )
 
-    write_workbook_rows(workbook_path, source, "Sheet1", "SPY")
+    write_source_csv(csv_path, source, "SPY")
 
-    workbook = load_workbook(workbook_path)
-    sheet = workbook["Sheet1"]
-    assert sheet.cell(row=1, column=1).value == "symbol"
-    assert sheet.cell(row=2, column=1).value == "SPY"
-    assert sheet.cell(row=2, column=2).value.date().isoformat() == "2024-03-01"
+    written = pd.read_csv(csv_path)
+    assert list(written.columns) == ["symbol", "date", "open", "high", "low", "close", "volume"]
+    assert written.iloc[0]["symbol"] == "SPY"
+    assert written.iloc[0]["date"] == "2024-03-01"
 
 
-def test_write_workbook_rows_adds_symbol_first_column_when_missing(tmp_path: Path) -> None:
-    workbook_path = tmp_path / "nvda.xlsx"
-    with pd.ExcelWriter(workbook_path) as writer:
-        pd.DataFrame(
-            {
-                "date": [pd.Timestamp("2024-01-01")],
-                "open": [10.0],
-                "high": [11.0],
-                "low": [9.0],
-                "close": [10.5],
-                "volume": [100],
-            }
-        ).to_excel(writer, sheet_name="Sheet1", index=False)
+def test_create_backup_uses_csv_refresh_backup_directory(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    csv_path = tmp_path / "sample.csv"
+    write_csv(csv_path)
 
-    source = pd.DataFrame(
+    backup_path = create_backup(csv_path)
+    resolved_backup_path = (tmp_path / backup_path).resolve()
+
+    assert resolved_backup_path.parent == tmp_path / "tmp" / "refresh_backups"
+    assert backup_path.suffix == ".csv"
+    assert resolved_backup_path.read_text(encoding="utf-8") == csv_path.read_text(encoding="utf-8")
+
+
+def test_refresh_yahoo_monthly_csv_rewrites_csv_and_returns_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    csv_path = tmp_path / "live.csv"
+    write_csv(csv_path, include_symbol=True)
+    fetched = pd.DataFrame(
         {
-            "date": pd.to_datetime(["2024-02-01", "2024-03-01"]),
-            "open": [12.0, 11.0],
-            "high": [13.0, 12.0],
-            "low": [11.0, 10.0],
-            "close": [12.5, 11.5],
-            "volume": [110, 120],
+            "date": pd.to_datetime(["2024-04-01", "2024-05-01"]),
+            "open": [13.0, 14.0],
+            "high": [14.0, 15.0],
+            "low": [12.0, 13.0],
+            "close": [13.5, 14.5],
+            "volume": [130, 140],
         }
     )
 
-    write_workbook_rows(workbook_path, source, "Sheet1", "NVDA")
+    monkeypatch.setattr(
+        "finance_cli.refresh.fetch_full_history_monthly_source",
+        lambda symbol: fetched,
+    )
+    monkeypatch.setattr("finance_cli.refresh.validate_source_contiguity", lambda source: None)
 
-    workbook = load_workbook(workbook_path)
-    sheet = workbook["Sheet1"]
-    headers = [sheet.cell(row=1, column=index).value for index in range(1, 8)]
-    assert headers == ["symbol", "date", "open", "high", "low", "close", "volume"]
-    assert sheet.cell(row=2, column=1).value == "NVDA"
-    assert sheet.cell(row=2, column=2).value.date().isoformat() == "2024-03-01"
+    summary = refresh_yahoo_monthly_csv(csv_path, symbol="NVDA", strict_validation=False)
+
+    rewritten = pd.read_csv(csv_path)
+    assert summary.symbol == "NVDA"
+    assert summary.row_count == 2
+    assert summary.backup_path.endswith(".csv")
+    assert list(rewritten.columns) == ["symbol", "date", "open", "high", "low", "close", "volume"]
+    assert rewritten.iloc[0]["symbol"] == "NVDA"
+    assert rewritten.iloc[0]["date"] == "2024-05-01"

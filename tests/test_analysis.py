@@ -8,8 +8,9 @@ from finance_cli.analysis import (
     build_default_output_path,
     prepare_dataframe,
     render_filtered_rows,
+    save_dataframe,
 )
-from finance_cli.errors import AnalysisError
+from finance_cli.errors import AnalysisError, SourceError
 
 
 def test_prepare_dataframe_requires_date_and_open() -> None:
@@ -60,7 +61,14 @@ def test_analyze_dataframe_and_render_output() -> None:
     assert "2024-03-01" in rendered
 
 
-def test_build_default_output_path() -> None:
-    path = build_default_output_path(Path("data/example.csv"))
+def test_build_default_output_path_always_returns_csv() -> None:
+    path = build_default_output_path(Path("data/example.xlsx"))
 
     assert path == Path("output/example_processed.csv")
+
+
+def test_save_dataframe_rejects_non_csv_output(tmp_path: Path) -> None:
+    dataframe = pd.DataFrame({"date": ["2024-01-01"], "open": [10]})
+
+    with pytest.raises(SourceError, match=r"Supported formats: \.csv"):
+        save_dataframe(dataframe, tmp_path / "output.xlsx")

@@ -1,5 +1,2 @@
 pandas
-openpyxl
-xlrd
-xlwt
 pytest

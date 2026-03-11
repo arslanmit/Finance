@@ -24,7 +24,6 @@ class DatasetConfig:
     id: str
     label: str
     path: str
-    sheet: str | None
     refresh: RefreshMetadata | None
     base_dir: Path
 
@@ -49,7 +48,6 @@ class DatasetConfig:
             "id": self.id,
             "label": self.label,
             "path": self.path,
-            "sheet": self.sheet,
             "refresh": None if self.refresh is None else self.refresh.to_record(),
         }
 
@@ -59,13 +57,12 @@ class ResolvedSource:
     """Resolved input source for a run."""
 
     input_path: Path
-    sheet_name: str | None
     dataset: DatasetConfig | None
 
 
 @dataclass(frozen=True)
 class RefreshSummary:
-    """Summary of a successful workbook refresh."""
+    """Summary of a successful CSV refresh."""
 
     symbol: str
     row_count: int

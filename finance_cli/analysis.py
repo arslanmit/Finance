@@ -60,7 +60,7 @@ def analyze_dataframe(dataframe: pd.DataFrame, months: int) -> pd.DataFrame:
 
 
 def build_default_output_path(input_path: Path) -> Path:
-    return Path("output") / f"{input_path.stem}_processed{input_path.suffix.lower()}"
+    return Path("output") / f"{input_path.stem}_processed.csv"
 
 
 def render_filtered_rows(dataframe: pd.DataFrame) -> str:
@@ -72,45 +72,6 @@ def render_filtered_rows(dataframe: pd.DataFrame) -> str:
 
 def save_dataframe(dataframe: pd.DataFrame, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    suffix = output_path.suffix.lower()
-    ensure_supported_file_suffix(suffix, kind="output")
+    ensure_supported_file_suffix(output_path.suffix.lower(), kind="output")
     output_dataframe = ensure_symbol_column(dataframe)
-
-    if suffix == ".csv":
-        output_dataframe.to_csv(output_path, index=False)
-        return
-    if suffix == ".xlsx":
-        output_dataframe.to_excel(output_path, index=False)
-        return
-
-    write_xls(output_dataframe, output_path)
-
-
-def write_xls(dataframe: pd.DataFrame, output_path: Path) -> None:
-    try:
-        import xlwt
-    except ImportError as exc:
-        raise AnalysisError(
-            "Writing .xls output requires the 'xlwt' package to be installed."
-        ) from exc
-
-    workbook = xlwt.Workbook()
-    worksheet = workbook.add_sheet("Sheet1")
-    date_style = xlwt.easyxf(num_format_str="YYYY-MM-DD")
-    datetime_style = xlwt.easyxf(num_format_str="YYYY-MM-DD HH:MM:SS")
-
-    for column_index, column_name in enumerate(dataframe.columns):
-        worksheet.write(0, column_index, str(column_name))
-
-    for row_index, row in enumerate(dataframe.itertuples(index=False), start=1):
-        for column_index, value in enumerate(row):
-            if pd.isna(value):
-                worksheet.write(row_index, column_index, "")
-                continue
-            if isinstance(value, pd.Timestamp):
-                style = date_style if value.time() == pd.Timestamp(0).time() else datetime_style
-                worksheet.write(row_index, column_index, value.to_pydatetime(), style)
-                continue
-            worksheet.write(row_index, column_index, value)
-
-    workbook.save(str(output_path))
+    output_dataframe.to_csv(output_path, index=False, date_format="%Y-%m-%d")

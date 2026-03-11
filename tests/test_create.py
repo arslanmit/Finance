@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from openpyxl import load_workbook
 
 from finance_cli.create import (
     build_generated_dataset_path,
@@ -37,10 +36,10 @@ def test_normalize_symbol_slug() -> None:
 
 
 def test_build_generated_dataset_path() -> None:
-    assert build_generated_dataset_path("spy") == Path("data/generated/spy.xlsx")
+    assert build_generated_dataset_path("spy") == Path("data/generated/spy.csv")
 
 
-def test_create_dataset_writes_workbook_and_registry(tmp_path: Path) -> None:
+def test_create_dataset_writes_csv_and_registry(tmp_path: Path) -> None:
     config_path = tmp_path / "datasets.json"
     write_registry(config_path)
     datasets = load_registry(config_path=config_path)
@@ -53,19 +52,14 @@ def test_create_dataset_writes_workbook_and_registry(tmp_path: Path) -> None:
     )
 
     assert dataset.id == "spy"
-    assert dataset.path == "data/generated/spy.xlsx"
+    assert dataset.path == "data/generated/spy.csv"
     assert dataset.refresh is not None
     assert dataset.refresh.symbol == "SPY"
 
-    workbook_path = tmp_path / dataset.path
-    workbook = load_workbook(workbook_path)
-    assert workbook.sheetnames == ["Sheet1"]
-
-    sheet = workbook["Sheet1"]
-    headers = [sheet.cell(row=1, column=index).value for index in range(1, 8)]
-    assert headers == ["symbol", "date", "open", "high", "low", "close", "volume"]
-    assert sheet.cell(row=2, column=1).value == "SPY"
-    assert sheet.cell(row=2, column=2).value.date().isoformat() == "2024-03-01"
+    created = pd.read_csv(tmp_path / dataset.path)
+    assert list(created.columns) == ["symbol", "date", "open", "high", "low", "close", "volume"]
+    assert created.iloc[0]["symbol"] == "SPY"
+    assert created.iloc[0]["date"] == "2024-03-01"
 
     loaded_registry = load_registry(config_path=config_path)
     assert [item.id for item in loaded_registry] == ["spy"]
@@ -94,7 +88,7 @@ def test_create_dataset_rejects_duplicate_id(tmp_path: Path) -> None:
 def test_create_dataset_rejects_existing_target_file(tmp_path: Path) -> None:
     config_path = tmp_path / "datasets.json"
     write_registry(config_path)
-    target = tmp_path / "data" / "generated" / "spy.xlsx"
+    target = tmp_path / "data" / "generated" / "spy.csv"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("existing", encoding="utf-8")
     datasets = load_registry(config_path=config_path)
@@ -148,9 +142,8 @@ def test_create_dataset_keeps_original_symbol_in_first_column(tmp_path: Path) ->
         fetcher=lambda symbol: monthly_frame(),
     )
 
-    workbook = load_workbook(tmp_path / dataset.path)
-    sheet = workbook["Sheet1"]
-    assert sheet.cell(row=2, column=1).value == "500.PA"
+    created = pd.read_csv(tmp_path / dataset.path)
+    assert created.iloc[0]["symbol"] == "500.PA"
 
 
 def test_create_dataset_wraps_fetch_errors(tmp_path: Path) -> None:

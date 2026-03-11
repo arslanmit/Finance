@@ -1,4 +1,4 @@
-"""Workbook refresh support for live Yahoo monthly data."""
+"""CSV refresh support for live Yahoo monthly data."""
 
 from __future__ import annotations
 
@@ -7,19 +7,15 @@ import shutil
 import time
 import urllib.error
 import urllib.request
-from copy import copy
-from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.comments import Comment
 
 from .errors import RefreshError
 from .models import RefreshSummary, ResolvedSource
+from .sources import ensure_symbol_column
 
-DEFAULT_WORKBOOK = Path("data/sp500_raw_data.xlsx")
-DEFAULT_SHEET = "Sheet1"
+DEFAULT_DATASET_PATH = Path("data/sp500_raw_data.csv")
 DEFAULT_SYMBOL = "500.PA"
 SUPPORTED_REFRESH_PROVIDER = "yahoo"
 EARLIEST_REQUEST_DATE = "2010-01-01"
@@ -27,18 +23,11 @@ FULL_HISTORY_PERIOD1 = 0
 EARLIEST_REAL_MONTH = pd.Timestamp("2010-06-01")
 OVERLAP_MONTHS = ("2024-08-01", "2024-10-01")
 NOVEMBER_OPEN_MONTH = pd.Timestamp("2024-11-01")
-SYMBOL_HEADER = "symbol"
-EXPECTED_HEADERS = ["date", "open", "high", "low", "close", "volume"]
-EXPECTED_HEADERS_WITH_SYMBOL = [SYMBOL_HEADER, *EXPECTED_HEADERS]
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Accept": "application/json,text/plain,*/*",
     "Accept-Language": "en-US,en;q=0.9",
 }
-AMUNDI_FACTSHEET_URL = (
-    "https://www.amundietf.lu/en/individual/products/equity/"
-    "amundi-sp-500-swap-ucits-etf-eur-acc/lu1681048804"
-)
 YAHOO_CHART_URL_TEMPLATE = (
     "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     "?interval=1mo&period1={period1}&period2={period2}"
@@ -56,22 +45,19 @@ def validate_refreshable_source(source: ResolvedSource) -> None:
         raise RefreshError(
             f"Dataset '{dataset.id}' uses an unsupported refresh provider: {dataset.refresh.provider}"
         )
-    if source.input_path.suffix.lower() != ".xlsx":
-        raise RefreshError("Live refresh currently supports only .xlsx workbook datasets.")
-    if source.sheet_name is None:
-        raise RefreshError("Live refresh requires a configured Excel sheet.")
+    if source.input_path.suffix.lower() != ".csv":
+        raise RefreshError("Live refresh currently supports only .csv datasets.")
 
 
 def refresh_selected_source(source: ResolvedSource) -> RefreshSummary:
     validate_refreshable_source(source)
     dataset = source.dataset
-    if dataset is None or dataset.refresh is None or source.sheet_name is None:
+    if dataset is None or dataset.refresh is None:
         raise RefreshError("Live refresh is not configured for the selected source.")
 
-    return refresh_yahoo_monthly_workbook(
+    return refresh_yahoo_monthly_csv(
         source.input_path,
         symbol=dataset.refresh.symbol,
-        sheet_name=source.sheet_name,
         strict_validation=is_default_refresh_target(source),
     )
 
@@ -80,15 +66,11 @@ def is_default_refresh_target(source: ResolvedSource) -> bool:
     dataset = source.dataset
     if dataset is None or dataset.refresh is None:
         return False
-    return dataset.path == DEFAULT_WORKBOOK.as_posix() and dataset.refresh.symbol == DEFAULT_SYMBOL
+    return dataset.path == DEFAULT_DATASET_PATH.as_posix() and dataset.refresh.symbol == DEFAULT_SYMBOL
 
 
 def build_chart_url(symbol: str, period1: int, period2: int) -> str:
     return YAHOO_CHART_URL_TEMPLATE.format(symbol=symbol, period1=period1, period2=period2)
-
-
-def build_history_url(symbol: str) -> str:
-    return f"https://finance.yahoo.com/quote/{symbol}/history/"
 
 
 def fetch_yahoo_monthly_source(
@@ -170,11 +152,11 @@ def fetch_monthly_source(symbol: str = DEFAULT_SYMBOL) -> pd.DataFrame:
     return fetch_yahoo_monthly_source(symbol)
 
 
-def load_existing_workbook_data(workbook_path: Path, sheet_name: str) -> pd.DataFrame:
-    dataframe = pd.read_excel(workbook_path, sheet_name=sheet_name)
+def load_existing_csv_data(data_path: Path) -> pd.DataFrame:
+    dataframe = pd.read_csv(data_path)
     dataframe.columns = [str(column).strip().lower() for column in dataframe.columns]
-    if SYMBOL_HEADER in dataframe.columns:
-        dataframe = dataframe.drop(columns=[SYMBOL_HEADER])
+    if "symbol" in dataframe.columns:
+        dataframe = dataframe.drop(columns=["symbol"])
     dataframe["date"] = pd.to_datetime(dataframe["date"]).dt.normalize()
     return dataframe
 
@@ -193,7 +175,7 @@ def validate_source_contiguity(source: pd.DataFrame) -> None:
 def validate_overlap(existing: pd.DataFrame, source: pd.DataFrame) -> None:
     merged = existing.merge(source, on="date", suffixes=("_existing", "_source"))
     if merged.empty:
-        raise RefreshError("Could not compare the current workbook to the live source.")
+        raise RefreshError("Could not compare the current dataset to the live source.")
 
     completed = merged[
         merged["date"].between(pd.Timestamp(OVERLAP_MONTHS[0]), pd.Timestamp(OVERLAP_MONTHS[1]))
@@ -214,133 +196,45 @@ def validate_overlap(existing: pd.DataFrame, source: pd.DataFrame) -> None:
     if november.empty:
         raise RefreshError("Expected an overlap row for 2024-11-01.")
 
-    open_delta = abs(float(november.iloc[0]["open_existing"]) - float(november.iloc[0]["open_source"]))
+    open_delta = abs(
+        float(november.iloc[0]["open_existing"]) - float(november.iloc[0]["open_source"])
+    )
     if open_delta > 0.02:
         raise RefreshError(
             f"Live source validation failed for 2024-11 open; delta was {open_delta:.4f}."
         )
 
 
-def create_backup(workbook_path: Path) -> Path:
-    backup_dir = Path("tmp/spreadsheets")
+def create_backup(data_path: Path) -> Path:
+    backup_dir = Path("tmp/refresh_backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_name = f"{workbook_path.stem}.backup.{time.strftime('%Y%m%d-%H%M%S')}{workbook_path.suffix}"
+    backup_name = f"{data_path.stem}.backup.{time.strftime('%Y%m%d-%H%M%S')}.csv"
     backup_path = backup_dir / backup_name
-    shutil.copy2(workbook_path, backup_path)
+    shutil.copy2(data_path, backup_path)
     return backup_path
 
 
-def find_last_populated_row(worksheet) -> int:
-    last_row = 1
-    for row_index in range(2, worksheet.max_row + 1):
-        if worksheet.cell(row=row_index, column=1).value is not None:
-            last_row = row_index
-    return last_row
-
-
-def get_workbook_layout(worksheet) -> tuple[list[str], bool]:
-    headers = [
-        worksheet.cell(row=1, column=index).value
-        for index in range(1, len(EXPECTED_HEADERS_WITH_SYMBOL) + 1)
-    ]
-    if headers[: len(EXPECTED_HEADERS)] == EXPECTED_HEADERS:
-        return EXPECTED_HEADERS, False
-    if headers == EXPECTED_HEADERS_WITH_SYMBOL:
-        return EXPECTED_HEADERS_WITH_SYMBOL, True
-    raise RefreshError(f"Unexpected workbook headers: {headers}")
-
-
-def ensure_symbol_workbook_layout(worksheet) -> None:
-    headers = [
-        worksheet.cell(row=1, column=index).value
-        for index in range(1, len(EXPECTED_HEADERS_WITH_SYMBOL) + 1)
-    ]
-    if headers == EXPECTED_HEADERS_WITH_SYMBOL:
-        return
-    if headers[: len(EXPECTED_HEADERS)] == EXPECTED_HEADERS:
-        worksheet.insert_cols(1)
-        worksheet.cell(row=1, column=1).value = SYMBOL_HEADER
-        return
-    raise RefreshError(f"Unexpected workbook headers: {headers}")
-
-
-def write_workbook_rows(workbook_path: Path, source: pd.DataFrame, sheet_name: str, symbol: str) -> None:
-    workbook = load_workbook(workbook_path)
-    if sheet_name not in workbook.sheetnames:
-        raise RefreshError(f"Sheet '{sheet_name}' was not found in {workbook_path}.")
-
-    worksheet = workbook[sheet_name]
-    ensure_symbol_workbook_layout(worksheet)
-    headers, include_symbol_column = get_workbook_layout(worksheet)
-    header_count = len(headers)
-
-    last_populated_row = find_last_populated_row(worksheet)
-    blank_style_row = min(last_populated_row + 1, worksheet.max_row)
-    data_styles = {
-        column: copy(worksheet.cell(row=2, column=column)._style)
-        for column in range(1, header_count + 1)
-    }
-    blank_styles = {
-        column: copy(worksheet.cell(row=blank_style_row, column=column)._style)
-        for column in range(1, header_count + 1)
-    }
-
+def write_source_csv(data_path: Path, source: pd.DataFrame, symbol: str) -> None:
     descending = source.sort_values("date", ascending=False).reset_index(drop=True)
-    output_rows: list[list[object]] = []
-    for record in descending.itertuples(index=False):
-        row = [
-            record.date.to_pydatetime(),
-            float(record.open),
-            float(record.high),
-            float(record.low),
-            float(record.close),
-            int(record.volume),
-        ]
-        if include_symbol_column:
-            row = [symbol, *row]
-        output_rows.append(row)
-
-    max_target_row = max(worksheet.max_row, len(output_rows) + 1)
-    for row_index in range(2, max_target_row + 1):
-        if row_index - 2 < len(output_rows):
-            values = output_rows[row_index - 2]
-            styles = data_styles
-        else:
-            values = [None] * header_count
-            styles = blank_styles
-
-        for column_index, value in enumerate(values, start=1):
-            cell = worksheet.cell(row=row_index, column=column_index)
-            cell._style = copy(styles[column_index])
-            cell.value = value
-
-    comment_lines = [
-        f"Refreshed from Yahoo Finance {symbol} monthly history on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.",
-        build_history_url(symbol),
-    ]
-    if symbol == DEFAULT_SYMBOL:
-        comment_lines.append(AMUNDI_FACTSHEET_URL)
-    comment_lines.append("Earliest reliable live month for this series: 2010-06-01.")
-    worksheet["A1"].comment = Comment("\n".join(comment_lines), "Codex")
-    workbook.save(workbook_path)
+    output = ensure_symbol_column(descending, symbol)
+    output.to_csv(data_path, index=False, date_format="%Y-%m-%d")
 
 
-def refresh_yahoo_monthly_workbook(
-    workbook_path: Path,
+def refresh_yahoo_monthly_csv(
+    data_path: Path,
     symbol: str = DEFAULT_SYMBOL,
-    sheet_name: str = DEFAULT_SHEET,
     strict_validation: bool = True,
 ) -> RefreshSummary:
-    if not workbook_path.exists():
-        raise RefreshError(f"Refresh target does not exist: {workbook_path}")
+    if not data_path.exists():
+        raise RefreshError(f"Refresh target does not exist: {data_path}")
 
-    existing = load_existing_workbook_data(workbook_path, sheet_name)
+    existing = load_existing_csv_data(data_path)
     source = fetch_monthly_source(symbol) if strict_validation else fetch_full_history_monthly_source(symbol)
     validate_source_contiguity(source)
     if strict_validation:
         validate_overlap(existing, source)
-    backup_path = create_backup(workbook_path)
-    write_workbook_rows(workbook_path, source, sheet_name, symbol)
+    backup_path = create_backup(data_path)
+    write_source_csv(data_path, source, symbol)
 
     return RefreshSummary(
         symbol=symbol,
@@ -351,10 +245,9 @@ def refresh_yahoo_monthly_workbook(
     )
 
 
-def refresh_default_workbook(workbook_path: Path = DEFAULT_WORKBOOK) -> RefreshSummary:
-    return refresh_yahoo_monthly_workbook(
-        workbook_path,
+def refresh_default_dataset(data_path: Path = DEFAULT_DATASET_PATH) -> RefreshSummary:
+    return refresh_yahoo_monthly_csv(
+        data_path,
         symbol=DEFAULT_SYMBOL,
-        sheet_name=DEFAULT_SHEET,
         strict_validation=True,
     )

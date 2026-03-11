@@ -20,12 +20,7 @@ from .errors import FinanceCliError
 from .models import DatasetConfig, RefreshSummary, ResolvedSource
 from .refresh import refresh_selected_source
 from .registry import add_dataset, get_dataset, load_registry, remove_dataset, save_registry
-from .sources import (
-    ensure_symbol_column,
-    load_dataframe,
-    resolve_custom_source,
-    resolve_dataset_source,
-)
+from .sources import ensure_symbol_column, load_dataframe, resolve_custom_source, resolve_dataset_source
 
 
 @dataclass(frozen=True)
@@ -45,10 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="Run moving-average analysis.")
     run_group = run_parser.add_mutually_exclusive_group(required=True)
     run_group.add_argument("--dataset", help="Dataset id from datasets.json.")
-    run_group.add_argument("--file", help="Path to a CSV or Excel file.")
-    run_parser.add_argument("--sheet", help="Excel sheet name for --file inputs.")
+    run_group.add_argument("--file", help="Path to a CSV file.")
     run_parser.add_argument("--months", type=int, required=True, help="Moving average window size.")
-    run_parser.add_argument("--output", help="Optional output file path.")
+    run_parser.add_argument("--output", help="Optional output CSV path.")
     run_parser.add_argument(
         "--refresh",
         action="store_true",
@@ -63,11 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser = datasets_subparsers.add_parser("add", help="Add a dataset to datasets.json.")
     add_parser.add_argument("--id", required=True, help="Unique dataset id.")
     add_parser.add_argument("--label", required=True, help="Friendly dataset label.")
-    add_parser.add_argument("--path", required=True, help="Path to the dataset file.")
-    add_parser.add_argument("--sheet", help="Sheet name for Excel datasets.")
+    add_parser.add_argument("--path", required=True, help="Path to the dataset CSV file.")
     add_parser.add_argument(
         "--refresh-symbol",
-        help="Yahoo Finance symbol for live refresh support. Only valid for .xlsx datasets.",
+        help="Yahoo Finance symbol for live refresh support. Only valid for .csv datasets.",
     )
 
     create_parser = datasets_subparsers.add_parser(
@@ -132,12 +125,10 @@ def handle_run_command(args: argparse.Namespace) -> None:
 
 def resolve_run_source(args: argparse.Namespace, datasets: list[DatasetConfig]) -> ResolvedSource:
     if args.dataset:
-        if args.sheet:
-            raise FinanceCliError("--sheet can only be used together with --file.")
         dataset = get_dataset(datasets, args.dataset)
         return resolve_dataset_source(dataset)
 
-    return resolve_custom_source(args.file, sheet_name=args.sheet, interactive=False)
+    return resolve_custom_source(args.file)
 
 
 def handle_datasets_command(args: argparse.Namespace) -> None:
@@ -152,7 +143,6 @@ def handle_datasets_command(args: argparse.Namespace) -> None:
             dataset_id=args.id,
             label=args.label,
             path=args.path,
-            sheet=args.sheet,
             refresh_symbol=args.refresh_symbol,
         )
         save_registry(datasets)
@@ -209,7 +199,7 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
         print(f"{index}. {dataset.id} - {dataset.label} ({dataset.file_name}){refresh_tag}")
     custom_index = len(datasets) + 1
     create_index = len(datasets) + 2
-    print(f"{custom_index}. custom - Use your own file path")
+    print(f"{custom_index}. custom - Use your own CSV file path")
     print(f"{create_index}. create - Create a new dataset from a Yahoo symbol")
 
     while True:
@@ -240,19 +230,13 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
 
 def prompt_for_custom_source() -> WizardSourceChoice:
     while True:
-        custom_path = input("Enter the file path: ").strip()
+        custom_path = input("Enter the CSV file path: ").strip()
         if not custom_path:
             print("Please enter a file path.")
             continue
 
         try:
-            return WizardSourceChoice(
-                resolve_custom_source(
-                    custom_path,
-                    interactive=True,
-                    choose_sheet=prompt_for_sheet_choice,
-                )
-            )
+            return WizardSourceChoice(resolve_custom_source(custom_path))
         except FinanceCliError as exc:
             print(f"Error: {exc}")
 
@@ -272,20 +256,6 @@ def prompt_for_symbol_dataset(datasets: list[DatasetConfig]) -> WizardSourceChoi
             return WizardSourceChoice(resolve_dataset_source(dataset), created_now=True)
         except FinanceCliError as exc:
             print(f"Error: {exc}")
-
-
-def prompt_for_sheet_choice(sheet_names: list[str], input_path: Path) -> str:
-    print(f"\nMultiple sheets were found in {input_path.name}:")
-    for index, sheet_name in enumerate(sheet_names, start=1):
-        print(f"{index}. {sheet_name}")
-
-    while True:
-        response = input("Choose a sheet number: ").strip()
-        if response.isdigit():
-            selection = int(response)
-            if 1 <= selection <= len(sheet_names):
-                return sheet_names[selection - 1]
-        print("Invalid sheet selection.")
 
 
 def prompt_for_months() -> int:
@@ -330,7 +300,7 @@ def execute_analysis(
         summary = refresh_selected_source(source)
         print_refresh_summary(summary)
 
-    raw_dataframe = load_dataframe(source.input_path, source.sheet_name)
+    raw_dataframe = load_dataframe(source.input_path)
     raw_dataframe = ensure_symbol_column(
         raw_dataframe,
         None if source.dataset is None else source.dataset.symbol,
@@ -368,7 +338,7 @@ def refresh_registered_datasets(
     return refreshed
 
 
-def print_refresh_summary(summary) -> None:
+def print_refresh_summary(summary: RefreshSummary) -> None:
     print(
         "Refresh summary: "
         f"symbol={summary.symbol}, "
