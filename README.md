@@ -160,6 +160,7 @@ The analysis logic is intentionally simple:
 - requires `date` and `open`
 - sorts rows by ascending date
 - computes `Moving_Average` from `open`
+- stores the entered window size in `moving_average_window_months`
 - computes `condition = (Moving_Average > open)`
 - prints rows where `condition == 1`
 - saves the full processed dataset with derived columns

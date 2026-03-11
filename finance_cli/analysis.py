@@ -52,6 +52,7 @@ def prepare_dataframe(dataframe: pd.DataFrame, months: int) -> pd.DataFrame:
 
 def analyze_dataframe(dataframe: pd.DataFrame, months: int) -> pd.DataFrame:
     analyzed = dataframe.copy()
+    analyzed["moving_average_window_months"] = months
     analyzed["Moving_Average"] = analyzed["open"].rolling(window=months).mean()
     analyzed["condition"] = (
         (analyzed["Moving_Average"] > analyzed["open"]).fillna(False).astype(int)
