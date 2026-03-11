@@ -22,7 +22,7 @@ def write_csv(path: Path) -> None:
     ).to_csv(path, index=False)
 
 
-def test_resolve_dataset_source_for_registered_csv(tmp_path: Path) -> None:
+def test_resolve_dataset_source_for_discovered_csv(tmp_path: Path) -> None:
     csv_path = tmp_path / "sample.csv"
     write_csv(csv_path)
     dataset = DatasetConfig(

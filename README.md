@@ -4,9 +4,9 @@ Simple command-line tool for analyzing ETF, stock, and similar market datasets w
 
 The app supports three main workflows:
 
-- run analysis on a registered dataset
+- run analysis on a discovered managed dataset
 - run analysis on your own CSV file
-- create a brand-new CSV dataset from a Yahoo Finance symbol such as `SPY`, `VOO`, `AAPL`, or `500.PA`
+- create a brand-new managed CSV dataset from a Yahoo Finance symbol such as `SPY`, `VOO`, `AAPL`, or `500.PA`
 
 ## Install
 
@@ -30,13 +30,13 @@ python3 dynamic_range_average.py
 
 The wizard can:
 
-- use an existing registered dataset
+- use an existing managed dataset discovered from `data/live`, `data/generated`, or `data/imported`
 - use a custom CSV file
 - create a new dataset from a Yahoo symbol
 
 ## Common Commands
 
-Run a registered dataset:
+Run a discovered dataset:
 
 ```bash
 python3 dynamic_range_average.py run --dataset default --months 6
@@ -48,27 +48,43 @@ Run your own CSV file:
 python3 dynamic_range_average.py run --file data/LU1681048804.csv --months 12
 ```
 
-Run a registered dataset and refresh it first:
+Run a discovered refreshable dataset and refresh it first:
 
 ```bash
 python3 dynamic_range_average.py run --dataset default --months 6 --refresh
 ```
 
-List registered datasets:
+List discovered datasets:
 
 ```bash
 python3 dynamic_range_average.py datasets list
 ```
 
-Refresh every registered live dataset:
+Refresh every discoverable live dataset:
 
 ```bash
 python3 dynamic_range_average.py datasets refresh --all
 ```
 
+## Managed Dataset Folders
+
+Datasets are discovered from these folders only:
+
+- `data/live/*.csv`
+- `data/generated/*.csv`
+- `data/imported/*.csv`
+
+Dataset ids come from file names. For example:
+
+- `data/live/default.csv` -> `default`
+- `data/generated/nvda.csv` -> `nvda`
+- `data/imported/amundi_csv.csv` -> `amundi_csv`
+
+Files outside those folders are never auto-discovered, but they can still be used with `run --file`.
+
 ## Create A Dataset From A Symbol
 
-Create and register a new dataset from Yahoo Finance:
+Create a new managed dataset from Yahoo Finance:
 
 ```bash
 python3 dynamic_range_average.py datasets create --symbol SPY
@@ -84,7 +100,7 @@ What this does:
 
 - downloads full available monthly OHLCV history for the symbol
 - creates a CSV file in `data/generated/`
-- registers the dataset in `datasets.json`
+- makes the dataset discoverable automatically
 - enables future refresh with the same Yahoo symbol
 - writes the symbol itself as the first column in the generated CSV
 
@@ -105,29 +121,21 @@ After creation, you can run the new dataset immediately:
 python3 dynamic_range_average.py run --dataset spy --months 6
 ```
 
-## Dataset Registry
+## Import Or Remove Datasets
 
-The registered dataset list is stored in [datasets.json](/Users/Development/Finance/datasets.json).
-
-List datasets:
+Import an existing CSV into managed storage:
 
 ```bash
-python3 dynamic_range_average.py datasets list
+python3 dynamic_range_average.py datasets add --id amundi_copy --path data/LU1681048804.csv
 ```
 
-Add an existing CSV file manually:
+Import an existing refreshable CSV into `data/live`:
 
 ```bash
-python3 dynamic_range_average.py datasets add --id amundi_copy --label "Amundi Copy" --path data/LU1681048804.csv
+python3 dynamic_range_average.py datasets add --id live_sp500 --path data/live/default.csv --refresh-symbol 500.PA
 ```
 
-Add an existing refreshable CSV:
-
-```bash
-python3 dynamic_range_average.py datasets add --id live_sp500 --label "Live S&P 500" --path data/sp500_raw_data.csv --refresh-symbol 500.PA
-```
-
-Remove a dataset:
+Remove a discovered dataset:
 
 ```bash
 python3 dynamic_range_average.py datasets remove --id amundi_copy
@@ -139,7 +147,7 @@ Refresh one live dataset:
 python3 dynamic_range_average.py datasets refresh --id default
 ```
 
-Refresh all live datasets:
+Refresh all live datasets inferred from a non-empty `symbol` column:
 
 ```bash
 python3 dynamic_range_average.py datasets refresh --all
@@ -170,9 +178,10 @@ Supported input format:
 
 Notes:
 
-- Excel files are no longer supported
+- Excel files are not supported
 - symbol-created and refreshed datasets are always stored as `.csv`
 - symbol-backed CSV files keep `symbol` as the first column
+- terminal output for symbol-backed datasets also shows `symbol` in the first column
 
 ## Output
 
@@ -184,7 +193,7 @@ output/<input_stem>_processed.csv
 
 Examples:
 
-- `data/LU1681048804.csv` -> `output/LU1681048804_processed.csv`
+- `data/live/default.csv` -> `output/default_processed.csv`
 - `data/generated/spy.csv` -> `output/spy_processed.csv`
 
 You can override this with `--output`, but the output format must still be `.csv`.

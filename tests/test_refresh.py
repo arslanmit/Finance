@@ -26,6 +26,7 @@ def write_csv(path: Path, include_symbol: bool = False) -> None:
     )
     if include_symbol:
         dataframe.insert(0, "symbol", "SPY")
+    path.parent.mkdir(parents=True, exist_ok=True)
     dataframe.to_csv(path, index=False)
 
 
@@ -34,7 +35,7 @@ def test_validate_refresh_rejects_custom_file(tmp_path: Path) -> None:
     csv_path.write_text("date,open\n2024-01-01,10\n", encoding="utf-8")
     source = ResolvedSource(input_path=csv_path, dataset=None)
 
-    with pytest.raises(RefreshError, match="registered datasets"):
+    with pytest.raises(RefreshError, match="discovered datasets"):
         validate_refreshable_source(source)
 
 
@@ -43,7 +44,7 @@ def test_validate_refresh_rejects_non_csv_dataset(tmp_path: Path) -> None:
     dataset_path.write_text("placeholder", encoding="utf-8")
     dataset = DatasetConfig(
         id="sample",
-        label="Sample",
+        label="sample",
         path="sample.xlsx",
         refresh=RefreshMetadata(provider="yahoo", symbol="500.PA"),
         base_dir=tmp_path,
@@ -59,7 +60,7 @@ def test_validate_refresh_rejects_unsupported_provider(tmp_path: Path) -> None:
     csv_path.write_text("", encoding="utf-8")
     dataset = DatasetConfig(
         id="sample",
-        label="Sample",
+        label="sample",
         path="sample.csv",
         refresh=RefreshMetadata(provider="custom", symbol="500.PA"),
         base_dir=tmp_path,
@@ -109,7 +110,7 @@ def test_refresh_yahoo_monthly_csv_rewrites_csv_and_returns_summary(
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    csv_path = tmp_path / "live.csv"
+    csv_path = tmp_path / "data" / "live" / "live.csv"
     write_csv(csv_path, include_symbol=True)
     fetched = pd.DataFrame(
         {

@@ -1,4 +1,4 @@
-"""Create registered CSV datasets from Yahoo Finance symbols."""
+"""Create managed CSV datasets from Yahoo Finance symbols."""
 
 from __future__ import annotations
 
@@ -7,12 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from .errors import CreationError, RegistryError
+from .catalog import GENERATED_DATA_DIR, discover_datasets, get_base_dir
+from .errors import CatalogError, CreationError
 from .models import DatasetConfig, RefreshMetadata
 from .refresh import fetch_full_history_monthly_source
-from .registry import get_config_path, save_registry
 
-GENERATED_DATA_DIR = Path("data/generated")
 SYMBOL_COLUMN = "symbol"
 EXPECTED_COLUMNS = ["date", "open", "high", "low", "close", "volume"]
 
@@ -29,11 +28,10 @@ def build_generated_dataset_path(symbol_slug: str) -> Path:
     return GENERATED_DATA_DIR / f"{symbol_slug}.csv"
 
 
-def create_and_register_symbol_dataset(
-    datasets: list[DatasetConfig],
+def create_symbol_dataset(
     symbol: str,
     *,
-    config_path: Path | None = None,
+    base_dir: Path | None = None,
     fetcher=None,
 ) -> DatasetConfig:
     normalized_symbol = symbol.strip().upper()
@@ -41,13 +39,12 @@ def create_and_register_symbol_dataset(
         raise CreationError("Symbol is required.")
 
     symbol_slug = normalize_symbol_slug(normalized_symbol)
-    if any(dataset.id == symbol_slug for dataset in datasets):
+    root = get_base_dir(base_dir)
+    if any(dataset.id == symbol_slug for dataset in discover_datasets(root)):
         raise CreationError(f"Dataset '{symbol_slug}' already exists.")
 
-    resolved_config = get_config_path(config_path)
-    base_dir = resolved_config.parent
     relative_path = build_generated_dataset_path(symbol_slug)
-    resolved_output_path = (base_dir / relative_path).resolve(strict=False)
+    resolved_output_path = (root / relative_path).resolve(strict=False)
     if resolved_output_path.exists():
         raise CreationError(f"Target dataset file already exists: {resolved_output_path}")
 
@@ -55,7 +52,7 @@ def create_and_register_symbol_dataset(
 
     try:
         dataframe = effective_fetcher(normalized_symbol)
-    except (CreationError, RegistryError):
+    except (CatalogError, CreationError):
         raise
     except Exception as exc:
         raise CreationError(str(exc)) from exc
@@ -69,23 +66,11 @@ def create_and_register_symbol_dataset(
 
     dataset = DatasetConfig(
         id=symbol_slug,
-        label=f"Yahoo symbol {normalized_symbol}",
+        label=symbol_slug,
         path=relative_path.as_posix(),
         refresh=RefreshMetadata(provider="yahoo", symbol=normalized_symbol),
-        base_dir=base_dir,
+        base_dir=root,
     )
-    datasets.append(dataset)
-
-    try:
-        save_registry(datasets, config_path=resolved_config)
-    except Exception as exc:
-        datasets.pop()
-        try:
-            if resolved_output_path.exists():
-                resolved_output_path.unlink()
-        except OSError:
-            pass
-        raise CreationError(f"Failed to save dataset registry: {exc}") from exc
 
     return dataset
 

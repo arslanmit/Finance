@@ -15,11 +15,11 @@ from .analysis import (
     render_filtered_rows,
     save_dataframe,
 )
-from .create import create_and_register_symbol_dataset
+from .catalog import discover_datasets, get_dataset, import_dataset, remove_dataset
+from .create import create_symbol_dataset
 from .errors import FinanceCliError
 from .models import DatasetConfig, RefreshSummary, ResolvedSource
 from .refresh import refresh_selected_source
-from .registry import add_dataset, get_dataset, load_registry, remove_dataset, save_registry
 from .sources import ensure_symbol_column, load_dataframe, resolve_custom_source, resolve_dataset_source
 
 
@@ -49,28 +49,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="Run moving-average analysis.")
     run_group = run_parser.add_mutually_exclusive_group(required=True)
-    run_group.add_argument("--dataset", help="Dataset id from datasets.json.")
+    run_group.add_argument("--dataset", help="Dataset id discovered from the managed CSV folders.")
     run_group.add_argument("--file", help="Path to a CSV file.")
     run_parser.add_argument("--months", type=int, required=True, help="Moving average window size.")
     run_parser.add_argument("--output", help="Optional output CSV path.")
     run_parser.add_argument(
         "--refresh",
         action="store_true",
-        help="Refresh a registered live dataset before analysis.",
+        help="Refresh a discovered live dataset before analysis.",
     )
 
-    datasets_parser = subparsers.add_parser("datasets", help="Manage registered datasets.")
+    datasets_parser = subparsers.add_parser("datasets", help="Manage discovered datasets.")
     datasets_subparsers = datasets_parser.add_subparsers(dest="datasets_command", required=True)
 
-    datasets_subparsers.add_parser("list", help="List all registered datasets.")
+    datasets_subparsers.add_parser("list", help="List all discovered datasets.")
 
-    add_parser = datasets_subparsers.add_parser("add", help="Add a dataset to datasets.json.")
+    add_parser = datasets_subparsers.add_parser(
+        "add",
+        help="Import a CSV into the managed dataset folders.",
+    )
     add_parser.add_argument("--id", required=True, help="Unique dataset id.")
-    add_parser.add_argument("--label", required=True, help="Friendly dataset label.")
+    add_parser.add_argument("--label", help="Ignored compatibility flag.")
     add_parser.add_argument("--path", required=True, help="Path to the dataset CSV file.")
     add_parser.add_argument(
         "--refresh-symbol",
-        help="Yahoo Finance symbol for live refresh support. Only valid for .csv datasets.",
+        help="Yahoo Finance symbol for live refresh support.",
     )
 
     create_parser = datasets_subparsers.add_parser(
@@ -79,19 +82,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     create_parser.add_argument("--symbol", required=True, help="Yahoo Finance symbol, e.g. SPY or AAPL.")
 
-    remove_parser = datasets_subparsers.add_parser("remove", help="Remove a registered dataset.")
+    remove_parser = datasets_subparsers.add_parser("remove", help="Remove a discovered dataset.")
     remove_parser.add_argument("--id", required=True, help="Dataset id to remove.")
 
     refresh_parser = datasets_subparsers.add_parser(
         "refresh",
-        help="Refresh registered live datasets from their configured provider.",
+        help="Refresh discovered live datasets from their configured provider.",
     )
     refresh_group = refresh_parser.add_mutually_exclusive_group(required=True)
     refresh_group.add_argument("--id", help="Dataset id to refresh.")
     refresh_group.add_argument(
         "--all",
         action="store_true",
-        help="Refresh all registered datasets that support live refresh.",
+        help="Refresh all discovered datasets that support live refresh.",
     )
 
     return parser
@@ -127,7 +130,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
 
 
 def handle_run_command(args: argparse.Namespace) -> None:
-    datasets = load_registry() if args.dataset else []
+    datasets = discover_datasets() if args.dataset else []
     source = resolve_run_source(args, datasets)
     output_path = Path(args.output).expanduser() if args.output else build_default_output_path(source.input_path)
     execute_analysis(source, months=args.months, output_path=output_path, refresh_requested=args.refresh)
@@ -135,7 +138,7 @@ def handle_run_command(args: argparse.Namespace) -> None:
 
 def resolve_run_source(args: argparse.Namespace, datasets: list[DatasetConfig]) -> ResolvedSource:
     if args.dataset:
-        dataset = get_dataset(datasets, args.dataset)
+        dataset = get_dataset(args.dataset, datasets)
         return resolve_dataset_source(dataset)
 
     return resolve_custom_source(args.file)
@@ -143,38 +146,33 @@ def resolve_run_source(args: argparse.Namespace, datasets: list[DatasetConfig]) 
 
 def handle_datasets_command(args: argparse.Namespace) -> None:
     if args.datasets_command == "list":
-        print_dataset_list(load_registry())
+        print_dataset_list(discover_datasets())
         return
 
-    datasets = load_registry()
     if args.datasets_command == "add":
-        dataset = add_dataset(
-            datasets,
+        dataset = import_dataset(
             dataset_id=args.id,
-            label=args.label,
-            path=args.path,
+            source_path=args.path,
             refresh_symbol=args.refresh_symbol,
         )
-        save_registry(datasets)
         print(f"Added dataset '{dataset.id}' -> {dataset.path}")
         return
 
     if args.datasets_command == "create":
-        dataset = create_and_register_symbol_dataset(datasets, args.symbol)
+        dataset = create_symbol_dataset(args.symbol)
         print(
             f"Created dataset '{dataset.id}' from symbol {dataset.refresh.symbol} -> {dataset.path}"
         )
         return
 
     if args.datasets_command == "remove":
-        removed = remove_dataset(datasets, args.id)
-        save_registry(datasets)
+        removed = remove_dataset(args.id)
         print(f"Removed dataset '{removed.id}'")
         return
 
     if args.datasets_command == "refresh":
-        refreshed = refresh_registered_datasets(
-            datasets,
+        refreshed = refresh_discovered_datasets(
+            discover_datasets(),
             dataset_id=args.id,
             refresh_all=args.all,
         )
@@ -186,7 +184,7 @@ def handle_datasets_command(args: argparse.Namespace) -> None:
 
 
 def run_wizard() -> None:
-    datasets = load_registry()
+    datasets = discover_datasets()
     selection = prompt_for_source(datasets)
     source = selection.source
     months = prompt_for_months()
@@ -226,11 +224,11 @@ def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
         if response.isdigit():
             selection = int(response)
             if 1 <= selection <= len(menu_items):
-                return select_wizard_menu_item(menu_items[selection - 1], datasets)
+                return select_wizard_menu_item(menu_items[selection - 1])
 
         for item in menu_items:
             if response.lower() == item.alias:
-                return select_wizard_menu_item(item, datasets)
+                return select_wizard_menu_item(item)
 
         print("Invalid selection. Choose a listed number, dataset alias, 'custom', or 'create'.")
 
@@ -280,12 +278,11 @@ def build_wizard_menu_items(datasets: list[DatasetConfig]) -> list[WizardMenuIte
 
 def dataset_menu_label(dataset: DatasetConfig) -> str:
     refresh_tag = " [refresh available]" if dataset.supports_refresh else ""
-    return f"{dataset.id} - {dataset.label} ({dataset.file_name}){refresh_tag}"
+    return f"{dataset.id} ({dataset.file_name}){refresh_tag}"
 
 
 def select_wizard_menu_item(
     item: WizardMenuItem,
-    datasets: list[DatasetConfig],
 ) -> WizardSourceChoice:
     if item.action in {"dataset-default", "dataset-other"}:
         if item.dataset is None:
@@ -294,7 +291,7 @@ def select_wizard_menu_item(
     if item.action == "custom":
         return prompt_for_custom_source()
     if item.action == "create":
-        return prompt_for_symbol_dataset(datasets)
+        return prompt_for_symbol_dataset()
     raise FinanceCliError("Unknown wizard menu item.")
 
 
@@ -311,7 +308,7 @@ def prompt_for_custom_source() -> WizardSourceChoice:
             print(f"Error: {exc}")
 
 
-def prompt_for_symbol_dataset(datasets: list[DatasetConfig]) -> WizardSourceChoice:
+def prompt_for_symbol_dataset() -> WizardSourceChoice:
     while True:
         symbol = input("Enter the Yahoo Finance symbol (for example SPY, VOO, AAPL): ").strip()
         if not symbol:
@@ -319,7 +316,7 @@ def prompt_for_symbol_dataset(datasets: list[DatasetConfig]) -> WizardSourceChoi
             continue
 
         try:
-            dataset = create_and_register_symbol_dataset(datasets, symbol)
+            dataset = create_symbol_dataset(symbol)
             print(
                 f"Created dataset '{dataset.id}' from symbol {dataset.refresh.symbol} -> {dataset.path}"
             )
@@ -383,7 +380,7 @@ def execute_analysis(
     print(f"\nProcessed data saved to: {output_path}")
 
 
-def refresh_registered_datasets(
+def refresh_discovered_datasets(
     datasets: list[DatasetConfig],
     *,
     dataset_id: str | None,
@@ -392,11 +389,11 @@ def refresh_registered_datasets(
     if refresh_all:
         targets = [dataset for dataset in datasets if dataset.supports_refresh]
         if not targets:
-            raise FinanceCliError("No registered datasets support live refresh.")
+            raise FinanceCliError("No discovered datasets support live refresh.")
     else:
         if dataset_id is None:
             raise FinanceCliError("A dataset id is required unless --all is used.")
-        dataset = get_dataset(datasets, dataset_id)
+        dataset = get_dataset(dataset_id, datasets)
         if not dataset.supports_refresh:
             raise FinanceCliError(f"Dataset '{dataset.id}' does not support live refresh.")
         targets = [dataset]
@@ -433,6 +430,6 @@ def print_dataset_list(datasets: list[DatasetConfig]) -> None:
     for dataset in datasets:
         refresh_text = "yes" if dataset.supports_refresh else "no"
         print(
-            f"- {dataset.id}: {dataset.label} | file: {dataset.file_name} | "
+            f"- {dataset.id}: {dataset.id} | file: {dataset.file_name} | "
             f"path: {dataset.path} | refresh: {refresh_text}"
         )

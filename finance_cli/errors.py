@@ -5,8 +5,8 @@ class FinanceCliError(Exception):
     """Base class for expected CLI errors."""
 
 
-class RegistryError(FinanceCliError):
-    """Raised when dataset registry operations fail."""
+class CatalogError(FinanceCliError):
+    """Raised when managed dataset discovery or mutation fails."""
 
 
 class SourceError(FinanceCliError):

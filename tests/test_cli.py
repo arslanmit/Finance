@@ -1,119 +1,92 @@
-import json
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from finance_cli.cli import build_parser, main
-from finance_cli.models import DatasetConfig, RefreshMetadata, RefreshSummary
-from finance_cli.registry import CONFIG_ENV_VAR, load_registry
+from finance_cli.catalog import discover_datasets
+from finance_cli.cli import build_parser, build_wizard_menu_items, main
+from finance_cli.models import RefreshSummary
 
 
-def write_csv(path: Path, include_symbol: bool = False) -> None:
+def write_csv(path: Path, *, symbol: str | None = None) -> None:
     dataframe = pd.DataFrame(
         {
             "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
             "open": [10, 12, 11],
+            "high": [11, 13, 12],
+            "low": [9, 11, 10],
+            "close": [10.5, 12.5, 11.5],
+            "volume": [100, 110, 120],
         }
     )
-    if include_symbol:
-        dataframe.insert(0, "symbol", "SPY")
+    if symbol is not None:
+        dataframe.insert(0, "symbol", symbol)
+    path.parent.mkdir(parents=True, exist_ok=True)
     dataframe.to_csv(path, index=False)
 
 
-def write_registry(path: Path, records: list[dict[str, object]]) -> None:
-    path.write_text(json.dumps({"datasets": records}, indent=2) + "\n", encoding="utf-8")
-
-
-def test_datasets_list_command(tmp_path: Path, monkeypatch, capsys) -> None:
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "sample.csv"
-    write_csv(csv_path)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "default",
-                "label": "Sample CSV",
-                "path": str(csv_path),
-                "refresh": None,
-            }
-        ],
+def monthly_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "open": [10.0, 12.0, 11.0],
+            "high": [11.0, 13.0, 12.0],
+            "low": [9.0, 11.0, 10.0],
+            "close": [10.5, 12.5, 11.5],
+            "volume": [100, 110, 120],
+        }
     )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+
+
+def test_datasets_list_command_uses_discovery(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
+    write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
+    write_csv(tmp_path / "data" / "imported" / "amundi_csv.csv")
+    write_csv(tmp_path / "data" / "ignored.csv", symbol="SPY")
 
     code = main(["datasets", "list"])
     output = capsys.readouterr().out
 
     assert code == 0
-    assert "default" in output
+    assert "- default: default | file: default.csv" in output
+    assert "- nvda: nvda | file: nvda.csv" in output
+    assert "- amundi_csv: amundi_csv | file: amundi_csv.csv" in output
+    assert "ignored" not in output
 
 
-def test_run_command_with_dataset(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.chdir(tmp_path)
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "sample.csv"
-    write_csv(csv_path)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "default",
-                "label": "Sample CSV",
-                "path": "sample.csv",
-                "refresh": None,
-            }
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
-
-    code = main(["run", "--dataset", "default", "--months", "2"])
-    output = capsys.readouterr().out
-
-    assert code == 0
-    assert "Processed data saved to:" in output
-    assert (tmp_path / "output" / "sample_processed.csv").exists()
-
-
-def test_run_command_with_refreshable_csv_dataset_writes_symbol_first(
+@pytest.mark.parametrize(
+    ("relative_path", "dataset_id", "expected_symbol"),
+    [
+        ("data/live/default.csv", "default", "500.PA"),
+        ("data/generated/nvda.csv", "nvda", "NVDA"),
+        ("data/imported/amundi_csv.csv", "amundi_csv", None),
+    ],
+)
+def test_run_command_with_discovered_dataset(
     tmp_path: Path,
     monkeypatch,
     capsys,
+    relative_path: str,
+    dataset_id: str,
+    expected_symbol: str | None,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "live.csv"
-    write_csv(csv_path)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "live",
-                "label": "Live CSV",
-                "path": "live.csv",
-                "refresh": {"provider": "yahoo", "symbol": "NVDA"},
-            }
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+    write_csv(tmp_path / relative_path, symbol=expected_symbol)
 
-    code = main(["run", "--dataset", "live", "--months", "2"])
+    code = main(["run", "--dataset", dataset_id, "--months", "2"])
     output = capsys.readouterr().out
 
     assert code == 0
-    assert "Processed data saved to:" in output
-    assert "NVDA" in output
-
-    processed = pd.read_csv(tmp_path / "output" / "live_processed.csv")
-    assert list(processed.columns)[:3] == ["symbol", "date", "open"]
-    assert processed.iloc[0]["symbol"] == "NVDA"
+    assert (tmp_path / "output" / f"{dataset_id}_processed.csv").exists()
+    if expected_symbol is not None:
+        assert expected_symbol in output
 
 
-def test_run_command_with_custom_file(tmp_path: Path, monkeypatch, capsys) -> None:
-    csv_path = tmp_path / "sample.csv"
+def test_run_command_with_custom_file(tmp_path: Path, capsys) -> None:
+    csv_path = tmp_path / "unmanaged.csv"
     output_path = tmp_path / "custom_output.csv"
     write_csv(csv_path)
-    monkeypatch.delenv(CONFIG_ENV_VAR, raising=False)
 
     code = main(["run", "--file", str(csv_path), "--months", "2", "--output", str(output_path)])
     output = capsys.readouterr().out
@@ -123,10 +96,9 @@ def test_run_command_with_custom_file(tmp_path: Path, monkeypatch, capsys) -> No
     assert output_path.exists()
 
 
-def test_run_command_rejects_excel_custom_file(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_run_command_rejects_excel_custom_file(tmp_path: Path, capsys) -> None:
     workbook_path = tmp_path / "legacy.xlsx"
     workbook_path.write_text("placeholder", encoding="utf-8")
-    monkeypatch.delenv(CONFIG_ENV_VAR, raising=False)
 
     code = main(["run", "--file", str(workbook_path), "--months", "2"])
     error = capsys.readouterr().err
@@ -151,89 +123,97 @@ def test_parser_rejects_removed_sheet_flag_for_add() -> None:
         )
 
 
-def test_datasets_add_and_remove_commands(tmp_path: Path, monkeypatch, capsys) -> None:
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "sample.csv"
-    write_csv(csv_path)
-    write_registry(config_path, [{"id": "default", "label": "Default", "path": str(csv_path), "refresh": None}])
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+def test_datasets_add_imports_into_imported_folder_and_ignores_label(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "source.csv"
+    write_csv(source)
 
-    add_code = main(
+    code = main(
         [
             "datasets",
             "add",
             "--id",
-            "extra",
+            "sample",
             "--label",
-            "Extra CSV",
+            "Legacy Label",
             "--path",
-            str(csv_path),
+            str(source),
         ]
     )
-    add_output = capsys.readouterr().out
+    output = capsys.readouterr().out
 
-    assert add_code == 0
-    assert "Added dataset 'extra'" in add_output
-    assert any(dataset.id == "extra" for dataset in load_registry(config_path))
-
-    remove_code = main(["datasets", "remove", "--id", "extra"])
-    remove_output = capsys.readouterr().out
-
-    assert remove_code == 0
-    assert "Removed dataset 'extra'" in remove_output
-    assert all(dataset.id != "extra" for dataset in load_registry(config_path))
+    assert code == 0
+    assert "Added dataset 'sample' -> data/imported/sample.csv" in output
+    assert (tmp_path / "data" / "imported" / "sample.csv").exists()
 
 
-def test_datasets_create_command(tmp_path: Path, monkeypatch, capsys) -> None:
-    config_path = tmp_path / "datasets.json"
-    write_registry(config_path, [])
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+def test_datasets_add_with_refresh_symbol_writes_live_dataset_with_symbol_first(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "source.csv"
+    write_csv(source)
 
-    def fake_create(datasets, symbol, config_path=None):
-        csv_path = tmp_path / "data" / "generated" / "spy.csv"
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
-        write_csv(csv_path, include_symbol=True)
+    code = main(
+        [
+            "datasets",
+            "add",
+            "--id",
+            "nvda",
+            "--path",
+            str(source),
+            "--refresh-symbol",
+            "nvda",
+        ]
+    )
+    capsys.readouterr()
 
-        dataset = DatasetConfig(
-            id="spy",
-            label="Yahoo symbol SPY",
-            path="data/generated/spy.csv",
-            refresh=RefreshMetadata(provider="yahoo", symbol="SPY"),
-            base_dir=tmp_path,
-        )
-        datasets.append(dataset)
+    assert code == 0
+    imported = pd.read_csv(tmp_path / "data" / "live" / "nvda.csv")
+    assert list(imported.columns)[:3] == ["symbol", "date", "open"]
+    assert imported["symbol"].tolist() == ["NVDA", "NVDA", "NVDA"]
 
-        from finance_cli.registry import save_registry
 
-        save_registry(datasets, config_path=config_path)
-        return dataset
-
-    monkeypatch.setattr("finance_cli.cli.create_and_register_symbol_dataset", fake_create)
+def test_datasets_create_command_writes_into_generated_folder(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "finance_cli.create.fetch_full_history_monthly_source",
+        lambda symbol: monthly_frame(),
+    )
 
     code = main(["datasets", "create", "--symbol", "SPY"])
     output = capsys.readouterr().out
 
     assert code == 0
-    assert "Created dataset 'spy' from symbol SPY" in output
-    assert any(dataset.id == "spy" for dataset in load_registry(config_path))
+    assert "Created dataset 'spy' from symbol SPY -> data/generated/spy.csv" in output
+    assert (tmp_path / "data" / "generated" / "spy.csv").exists()
+
+
+def test_datasets_remove_deletes_backing_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "imported" / "sample.csv")
+
+    code = main(["datasets", "remove", "--id", "sample"])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Removed dataset 'sample'" in output
+    assert not (tmp_path / "data" / "imported" / "sample.csv").exists()
 
 
 def test_datasets_refresh_single_command(tmp_path: Path, monkeypatch, capsys) -> None:
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "live.csv"
-    write_csv(csv_path)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "live",
-                "label": "Live CSV",
-                "path": "live.csv",
-                "refresh": {"provider": "yahoo", "symbol": "SPY"},
-            }
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "live" / "live.csv", symbol="SPY")
 
     def fake_refresh(source):
         assert source.dataset is not None
@@ -256,50 +236,23 @@ def test_datasets_refresh_single_command(tmp_path: Path, monkeypatch, capsys) ->
     assert "symbol=SPY" in output
 
 
-def test_datasets_refresh_all_command_skips_non_refreshable_entries(
+def test_datasets_refresh_all_uses_symbol_column_presence(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    config_path = tmp_path / "datasets.json"
-    first_csv = tmp_path / "first.csv"
-    second_csv = tmp_path / "second.csv"
-    sample_csv = tmp_path / "sample.csv"
-    write_csv(first_csv)
-    write_csv(second_csv)
-    write_csv(sample_csv)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "first",
-                "label": "First Live CSV",
-                "path": "first.csv",
-                "refresh": {"provider": "yahoo", "symbol": "SPY"},
-            },
-            {
-                "id": "sample",
-                "label": "Sample CSV",
-                "path": "sample.csv",
-                "refresh": None,
-            },
-            {
-                "id": "second",
-                "label": "Second Live CSV",
-                "path": "second.csv",
-                "refresh": {"provider": "yahoo", "symbol": "NVDA"},
-            },
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
+    write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
+    write_csv(tmp_path / "data" / "imported" / "amundi_csv.csv")
     refreshed_ids: list[str] = []
 
     def fake_refresh(source):
         assert source.dataset is not None
         refreshed_ids.append(source.dataset.id)
         return RefreshSummary(
-            symbol=source.dataset.refresh.symbol,
-            row_count=200,
+            symbol=source.dataset.symbol or "UNKNOWN",
+            row_count=10,
             min_date="2010-01-01",
             max_date="2026-03-01",
             backup_path=f"tmp/refresh_backups/{source.dataset.id}.backup.csv",
@@ -311,190 +264,31 @@ def test_datasets_refresh_all_command_skips_non_refreshable_entries(
     output = capsys.readouterr().out
 
     assert code == 0
-    assert refreshed_ids == ["first", "second"]
-    assert "Refreshed dataset 'first'" in output
-    assert "Refreshed dataset 'second'" in output
-    assert "sample" not in output
+    assert refreshed_ids == ["default", "nvda"]
+    assert "amundi_csv" not in output
 
 
-def test_datasets_refresh_all_command_requires_live_datasets(
+def test_datasets_refresh_all_errors_when_none_are_refreshable(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "sample.csv"
-    write_csv(csv_path)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "sample",
-                "label": "Sample CSV",
-                "path": "sample.csv",
-                "refresh": None,
-            }
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "imported" / "sample.csv")
 
     code = main(["datasets", "refresh", "--all"])
     error = capsys.readouterr().err
 
     assert code == 1
-    assert "No registered datasets support live refresh" in error
+    assert "No discovered datasets support live refresh." in error
 
 
-def test_wizard_happy_path(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.chdir(tmp_path)
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "sample.csv"
-    write_csv(csv_path)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "default",
-                "label": "Sample CSV",
-                "path": "sample.csv",
-                "refresh": {"provider": "yahoo", "symbol": "500.PA"},
-            }
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
-    responses = iter(["1", "2", "n", ""])
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
+def test_wizard_menu_order_uses_discovered_datasets(tmp_path: Path) -> None:
+    write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
+    write_csv(tmp_path / "data" / "live" / "default.csv", symbol="500.PA")
+    write_csv(tmp_path / "data" / "imported" / "amundi_csv.csv")
 
-    code = main([])
-    output = capsys.readouterr().out
+    items = build_wizard_menu_items(discover_datasets(tmp_path))
 
-    assert code == 0
-    assert "Processed data saved to:" in output
-    assert (tmp_path / "output" / "sample_processed.csv").exists()
-
-
-def test_wizard_menu_shows_default_then_create_then_custom_then_others(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    config_path = tmp_path / "datasets.json"
-    default_csv = tmp_path / "default.csv"
-    extra_csv = tmp_path / "extra.csv"
-    write_csv(default_csv)
-    write_csv(extra_csv)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "default",
-                "label": "Default CSV",
-                "path": "default.csv",
-                "refresh": {"provider": "yahoo", "symbol": "500.PA"},
-            },
-            {
-                "id": "extra",
-                "label": "Extra CSV",
-                "path": "extra.csv",
-                "refresh": None,
-            },
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
-    responses = iter(["1", "2", "n", ""])
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
-
-    code = main([])
-    output = capsys.readouterr().out
-
-    assert code == 0
-    assert output.index("default - Default CSV") < output.index("create - Create a new dataset")
-    assert output.index("create - Create a new dataset") < output.index("custom - Use your own CSV file path")
-    assert output.index("custom - Use your own CSV file path") < output.index("others:")
-    assert output.index("others:") < output.index("extra - Extra CSV")
-
-
-def test_wizard_create_symbol_and_run(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.chdir(tmp_path)
-    config_path = tmp_path / "datasets.json"
-    write_registry(config_path, [])
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
-
-    def fake_create(datasets, symbol, config_path=None):
-        csv_path = tmp_path / "data" / "generated" / "spy.csv"
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
-        write_csv(csv_path, include_symbol=True)
-
-        dataset = DatasetConfig(
-            id="spy",
-            label="Yahoo symbol SPY",
-            path="data/generated/spy.csv",
-            refresh=RefreshMetadata(provider="yahoo", symbol="SPY"),
-            base_dir=tmp_path,
-        )
-        datasets.append(dataset)
-
-        from finance_cli.registry import save_registry
-
-        save_registry(datasets, config_path=config_path)
-        return dataset
-
-    monkeypatch.setattr("finance_cli.cli.create_and_register_symbol_dataset", fake_create)
-    responses = iter(["1", "SPY", "2", ""])
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
-
-    code = main([])
-    output = capsys.readouterr().out
-
-    assert code == 0
-    assert "Created dataset 'spy' from symbol SPY" in output
-    assert (tmp_path / "output" / "spy_processed.csv").exists()
-
-
-def test_run_refresh_rejects_unsupported_dataset(tmp_path: Path, monkeypatch, capsys) -> None:
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "sample.csv"
-    write_csv(csv_path)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "default",
-                "label": "Sample CSV",
-                "path": str(csv_path),
-                "refresh": None,
-            }
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
-
-    code = main(["run", "--dataset", "default", "--months", "2", "--refresh"])
-    error = capsys.readouterr().err
-
-    assert code == 1
-    assert "does not support live refresh" in error
-
-
-def test_run_refresh_rejects_unsupported_provider(tmp_path: Path, monkeypatch, capsys) -> None:
-    config_path = tmp_path / "datasets.json"
-    csv_path = tmp_path / "sample.csv"
-    write_csv(csv_path)
-    write_registry(
-        config_path,
-        [
-            {
-                "id": "default",
-                "label": "Sample CSV",
-                "path": str(csv_path),
-                "refresh": {"provider": "custom", "symbol": "500.PA"},
-            }
-        ],
-    )
-    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
-
-    code = main(["run", "--dataset", "default", "--months", "2", "--refresh"])
-    error = capsys.readouterr().err
-
-    assert code == 1
-    assert "unsupported refresh provider" in error
+    assert [item.alias for item in items] == ["default", "create", "custom", "amundi_csv", "nvda"]
+    assert items[0].label == "default (default.csv) [refresh available]"

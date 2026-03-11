@@ -8,18 +8,15 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class RefreshMetadata:
-    """Refresh metadata for a configured dataset."""
+    """Refresh metadata for a discovered dataset."""
 
     provider: str
     symbol: str
 
-    def to_record(self) -> dict[str, str]:
-        return {"provider": self.provider, "symbol": self.symbol}
-
 
 @dataclass(frozen=True)
 class DatasetConfig:
-    """Configured dataset entry from datasets.json."""
+    """Discovered dataset entry from a managed CSV directory."""
 
     id: str
     label: str
@@ -42,14 +39,6 @@ class DatasetConfig:
     @property
     def symbol(self) -> str | None:
         return None if self.refresh is None else self.refresh.symbol
-
-    def to_record(self) -> dict[str, object]:
-        return {
-            "id": self.id,
-            "label": self.label,
-            "path": self.path,
-            "refresh": None if self.refresh is None else self.refresh.to_record(),
-        }
 
 
 @dataclass(frozen=True)

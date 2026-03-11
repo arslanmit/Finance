@@ -15,7 +15,7 @@ from .errors import RefreshError
 from .models import RefreshSummary, ResolvedSource
 from .sources import ensure_symbol_column
 
-DEFAULT_DATASET_PATH = Path("data/sp500_raw_data.csv")
+DEFAULT_DATASET_PATH = Path("data/live/default.csv")
 DEFAULT_SYMBOL = "500.PA"
 SUPPORTED_REFRESH_PROVIDER = "yahoo"
 EARLIEST_REQUEST_DATE = "2010-01-01"
@@ -38,7 +38,7 @@ YAHOO_CHART_URL_TEMPLATE = (
 def validate_refreshable_source(source: ResolvedSource) -> None:
     dataset = source.dataset
     if dataset is None:
-        raise RefreshError("Live refresh is only available for registered datasets, not custom files.")
+        raise RefreshError("Live refresh is only available for discovered datasets, not custom files.")
     if dataset.refresh is None:
         raise RefreshError(f"Dataset '{dataset.id}' does not support live refresh.")
     if dataset.refresh.provider != SUPPORTED_REFRESH_PROVIDER:

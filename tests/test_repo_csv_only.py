@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 
@@ -15,13 +14,19 @@ def test_repo_has_no_excel_files() -> None:
     assert excel_files == []
 
 
-def test_registry_and_requirements_are_csv_only() -> None:
-    registry = json.loads((ROOT / "datasets.json").read_text(encoding="utf-8"))
+def test_repo_has_no_registry_artifacts_or_excel_dependencies() -> None:
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    searchable_files = [
+        ROOT / "README.md",
+        *ROOT.glob("finance_cli/**/*.py"),
+        *[path for path in ROOT.glob("tests/**/*.py") if path.name != "test_repo_csv_only.py"],
+    ]
 
-    for entry in registry["datasets"]:
-        assert "sheet" not in entry
-        assert entry["path"].endswith(".csv")
+    assert not (ROOT / "datasets.json").exists()
+    assert not (ROOT / "finance_cli" / "registry.py").exists()
 
     for dependency in ("openpyxl", "xlrd", "xlwt"):
         assert dependency not in requirements
+
+    for text in ("datasets.json", "FINANCE_CLI_DATASETS_CONFIG"):
+        assert all(text not in path.read_text(encoding="utf-8") for path in searchable_files)
