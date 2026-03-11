@@ -60,6 +60,12 @@ List registered datasets:
 python3 dynamic_range_average.py datasets list
 ```
 
+Refresh every registered live dataset:
+
+```bash
+python3 dynamic_range_average.py datasets refresh --all
+```
+
 ## Create A Dataset From A Symbol
 
 Create and register a new dataset from Yahoo Finance:
@@ -125,6 +131,18 @@ Remove a dataset:
 
 ```bash
 python3 dynamic_range_average.py datasets remove --id amundi_copy
+```
+
+Refresh one live dataset:
+
+```bash
+python3 dynamic_range_average.py datasets refresh --id default
+```
+
+Refresh all live datasets:
+
+```bash
+python3 dynamic_range_average.py datasets refresh --all
 ```
 
 ## How Analysis Works

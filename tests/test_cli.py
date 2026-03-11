@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from finance_cli.cli import main
+from finance_cli.models import RefreshSummary
 from finance_cli.registry import CONFIG_ENV_VAR, load_registry
 
 
@@ -164,6 +165,138 @@ def test_datasets_create_command(tmp_path: Path, monkeypatch, capsys) -> None:
     assert code == 0
     assert "Created dataset 'spy' from symbol SPY" in output
     assert any(dataset.id == "spy" for dataset in load_registry(config_path))
+
+
+def test_datasets_refresh_single_command(tmp_path: Path, monkeypatch, capsys) -> None:
+    config_path = tmp_path / "datasets.json"
+    workbook_path = tmp_path / "live.xlsx"
+    write_workbook(workbook_path)
+    write_registry(
+        config_path,
+        [
+            {
+                "id": "live",
+                "label": "Live Workbook",
+                "path": "live.xlsx",
+                "sheet": "Sheet1",
+                "refresh": {"provider": "yahoo", "symbol": "SPY"},
+            }
+        ],
+    )
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+
+    def fake_refresh(source):
+        assert source.dataset is not None
+        assert source.dataset.id == "live"
+        return RefreshSummary(
+            symbol="SPY",
+            row_count=123,
+            min_date="2010-01-01",
+            max_date="2026-03-01",
+            backup_path="tmp/spreadsheets/live.backup.xlsx",
+        )
+
+    monkeypatch.setattr("finance_cli.cli.refresh_selected_source", fake_refresh)
+
+    code = main(["datasets", "refresh", "--id", "live"])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Refreshed dataset 'live'" in output
+    assert "symbol=SPY" in output
+
+
+def test_datasets_refresh_all_command_skips_non_refreshable_entries(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "datasets.json"
+    first_workbook = tmp_path / "first.xlsx"
+    second_workbook = tmp_path / "second.xlsx"
+    csv_path = tmp_path / "sample.csv"
+    write_workbook(first_workbook)
+    write_workbook(second_workbook)
+    write_csv(csv_path)
+    write_registry(
+        config_path,
+        [
+            {
+                "id": "first",
+                "label": "First Live Workbook",
+                "path": "first.xlsx",
+                "sheet": "Sheet1",
+                "refresh": {"provider": "yahoo", "symbol": "SPY"},
+            },
+            {
+                "id": "sample",
+                "label": "Sample CSV",
+                "path": "sample.csv",
+                "sheet": None,
+                "refresh": None,
+            },
+            {
+                "id": "second",
+                "label": "Second Live Workbook",
+                "path": "second.xlsx",
+                "sheet": "Sheet1",
+                "refresh": {"provider": "yahoo", "symbol": "NVDA"},
+            },
+        ],
+    )
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+    refreshed_ids: list[str] = []
+
+    def fake_refresh(source):
+        assert source.dataset is not None
+        refreshed_ids.append(source.dataset.id)
+        return RefreshSummary(
+            symbol=source.dataset.refresh.symbol,
+            row_count=200,
+            min_date="2010-01-01",
+            max_date="2026-03-01",
+            backup_path=f"tmp/spreadsheets/{source.dataset.id}.backup.xlsx",
+        )
+
+    monkeypatch.setattr("finance_cli.cli.refresh_selected_source", fake_refresh)
+
+    code = main(["datasets", "refresh", "--all"])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert refreshed_ids == ["first", "second"]
+    assert "Refreshed dataset 'first'" in output
+    assert "Refreshed dataset 'second'" in output
+    assert "sample" not in output
+
+
+def test_datasets_refresh_all_command_requires_live_datasets(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "datasets.json"
+    csv_path = tmp_path / "sample.csv"
+    write_csv(csv_path)
+    write_registry(
+        config_path,
+        [
+            {
+                "id": "sample",
+                "label": "Sample CSV",
+                "path": "sample.csv",
+                "sheet": None,
+                "refresh": None,
+            }
+        ],
+    )
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(config_path))
+
+    code = main(["datasets", "refresh", "--all"])
+    error = capsys.readouterr().err
+
+    assert code == 1
+    assert "No registered datasets support live refresh" in error
 
 
 def test_wizard_happy_path(tmp_path: Path, monkeypatch, capsys) -> None:

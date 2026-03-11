@@ -17,7 +17,7 @@ from .analysis import (
 )
 from .create import create_and_register_symbol_dataset
 from .errors import FinanceCliError
-from .models import DatasetConfig, ResolvedSource
+from .models import DatasetConfig, RefreshSummary, ResolvedSource
 from .refresh import refresh_selected_source
 from .registry import add_dataset, get_dataset, load_registry, remove_dataset, save_registry
 from .sources import load_dataframe, resolve_custom_source, resolve_dataset_source
@@ -73,6 +73,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     remove_parser = datasets_subparsers.add_parser("remove", help="Remove a registered dataset.")
     remove_parser.add_argument("--id", required=True, help="Dataset id to remove.")
+
+    refresh_parser = datasets_subparsers.add_parser(
+        "refresh",
+        help="Refresh registered live datasets from their configured provider.",
+    )
+    refresh_group = refresh_parser.add_mutually_exclusive_group(required=True)
+    refresh_group.add_argument("--id", help="Dataset id to refresh.")
+    refresh_group.add_argument(
+        "--all",
+        action="store_true",
+        help="Refresh all registered datasets that support live refresh.",
+    )
 
     return parser
 
@@ -153,6 +165,16 @@ def handle_datasets_command(args: argparse.Namespace) -> None:
         removed = remove_dataset(datasets, args.id)
         save_registry(datasets)
         print(f"Removed dataset '{removed.id}'")
+        return
+
+    if args.datasets_command == "refresh":
+        refreshed = refresh_registered_datasets(
+            datasets,
+            dataset_id=args.id,
+            refresh_all=args.all,
+        )
+        for dataset, summary in refreshed:
+            print_dataset_refresh_summary(dataset, summary)
         return
 
     raise FinanceCliError("Unknown datasets command.")
@@ -312,9 +334,44 @@ def execute_analysis(
     print(f"\nProcessed data saved to: {output_path}")
 
 
+def refresh_registered_datasets(
+    datasets: list[DatasetConfig],
+    *,
+    dataset_id: str | None,
+    refresh_all: bool,
+) -> list[tuple[DatasetConfig, RefreshSummary]]:
+    if refresh_all:
+        targets = [dataset for dataset in datasets if dataset.supports_refresh]
+        if not targets:
+            raise FinanceCliError("No registered datasets support live refresh.")
+    else:
+        if dataset_id is None:
+            raise FinanceCliError("A dataset id is required unless --all is used.")
+        dataset = get_dataset(datasets, dataset_id)
+        if not dataset.supports_refresh:
+            raise FinanceCliError(f"Dataset '{dataset.id}' does not support live refresh.")
+        targets = [dataset]
+
+    refreshed: list[tuple[DatasetConfig, RefreshSummary]] = []
+    for dataset in targets:
+        summary = refresh_selected_source(resolve_dataset_source(dataset))
+        refreshed.append((dataset, summary))
+    return refreshed
+
+
 def print_refresh_summary(summary) -> None:
     print(
         "Refresh summary: "
+        f"symbol={summary.symbol}, "
+        f"range={summary.min_date}..{summary.max_date}, "
+        f"rows={summary.row_count}, "
+        f"backup={summary.backup_path}"
+    )
+
+
+def print_dataset_refresh_summary(dataset: DatasetConfig, summary: RefreshSummary) -> None:
+    print(
+        f"Refreshed dataset '{dataset.id}': "
         f"symbol={summary.symbol}, "
         f"range={summary.min_date}..{summary.max_date}, "
         f"rows={summary.row_count}, "
