@@ -9,7 +9,13 @@ import pandas as pd
 from .errors import AnalysisError
 from .sources import ensure_supported_file_suffix, ensure_symbol_column
 
-DISPLAY_COLUMNS = ["date", "open", "Moving_Average", "condition"]
+DISPLAY_COLUMNS = [
+    "date",
+    "open",
+    "moving_average_window_months",
+    "Moving_Average",
+    "condition",
+]
 
 
 def prepare_dataframe(dataframe: pd.DataFrame, months: int) -> pd.DataFrame:
@@ -69,10 +75,10 @@ def render_filtered_rows(dataframe: pd.DataFrame) -> str:
     if "symbol" in dataframe.columns:
         display_columns = ["symbol", *DISPLAY_COLUMNS]
 
-    filtered = dataframe[dataframe["condition"] == 1][display_columns]
-    if filtered.empty:
-        return "No rows matched the Moving_Average > open condition."
-    return filtered.to_string(index=False)
+    displayed = dataframe[display_columns]
+    if displayed.empty:
+        return "No rows are available for display."
+    return displayed.to_string(index=False)
 
 
 def save_dataframe(dataframe: pd.DataFrame, output_path: Path) -> None:

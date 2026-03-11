@@ -59,7 +59,11 @@ def test_analyze_dataframe_and_render_output() -> None:
     assert "Moving_Average" in analyzed.columns
     assert analyzed["moving_average_window_months"].tolist() == [2, 2, 2]
     assert analyzed["condition"].tolist() == [0, 0, 1]
+    assert "2024-01-01" in rendered
     assert "2024-03-01" in rendered
+    assert "moving_average_window_months" in rendered
+    assert "0" in rendered
+    assert "1" in rendered
 
 
 def test_render_filtered_rows_shows_symbol_when_present() -> None:
@@ -77,6 +81,24 @@ def test_render_filtered_rows_shows_symbol_when_present() -> None:
 
     assert "symbol" in rendered
     assert "NVDA" in rendered
+    assert "moving_average_window_months" in rendered
+
+
+def test_render_filtered_rows_shows_all_rows_when_condition_is_zero() -> None:
+    dataframe = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01"],
+            "open": [10, 11],
+        }
+    )
+
+    prepared = prepare_dataframe(dataframe, months=2)
+    analyzed = analyze_dataframe(prepared, months=2)
+    rendered = render_filtered_rows(analyzed)
+
+    assert "2024-01-01" in rendered
+    assert "2024-02-01" in rendered
+    assert "0" in rendered
 
 
 def test_build_default_output_path_always_returns_csv() -> None:
