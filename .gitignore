@@ -38,9 +38,9 @@ ENV/
 .LSOverride
 
 # Data files
-*.csv
-*.xlsx
-*.xls
+#*.csv
+#*.xlsx
+#*.xls
 *.db
 *.sqlite3
 
