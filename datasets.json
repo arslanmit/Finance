@@ -37,6 +37,16 @@
       "path": "data/raw_data.xlsx",
       "sheet": "data",
       "refresh": null
+    },
+    {
+      "id": "dher_de",
+      "label": "Yahoo symbol DHER.DE",
+      "path": "data/generated/dher_de.xlsx",
+      "sheet": "Sheet1",
+      "refresh": {
+        "provider": "yahoo",
+        "symbol": "DHER.DE"
+      }
     }
   ]
 }
