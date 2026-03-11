@@ -47,6 +47,16 @@
         "provider": "yahoo",
         "symbol": "DHER.DE"
       }
+    },
+    {
+      "id": "nvda",
+      "label": "Yahoo symbol NVDA",
+      "path": "data/generated/nvda.xlsx",
+      "sheet": "Sheet1",
+      "refresh": {
+        "provider": "yahoo",
+        "symbol": "NVDA"
+      }
     }
   ]
 }
