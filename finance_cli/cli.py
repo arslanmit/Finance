@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
+import pandas as pd
+
 from .analysis import (
     analyze_dataframe,
+    analyze_dataframe_with_config,
     build_default_output_path,
+    format_rule,
+    get_indicator_registry,
+    parse_rule,
     prepare_dataframe,
     render_filtered_rows,
     save_dataframe,
@@ -18,9 +25,14 @@ from .analysis import (
 from .catalog import discover_datasets, get_dataset, import_dataset, remove_dataset
 from .create import create_symbol_dataset
 from .errors import FinanceCliError
-from .models import DatasetConfig, RefreshSummary, ResolvedSource
+from .models import AnalysisConfig, DatasetConfig, RefreshSummary, ResolvedSource
 from .refresh import refresh_selected_source
 from .sources import ensure_symbol_column, load_dataframe, resolve_custom_source, resolve_dataset_source
+
+MATRIX_MONTHS = (1, 3, 6, 12, 24)
+MATRIX_RULE_OPERATORS = (">", "<", ">=", "<=")
+MATRIX_RULE_COLUMNS = ("open", "high", "low", "close")
+RULE_SLUG_OPERATOR_MAP = {">": "gt", "<": "lt", ">=": "gte", "<=": "lte"}
 
 
 @dataclass(frozen=True)
@@ -41,22 +53,68 @@ class WizardMenuItem:
     dataset: DatasetConfig | None = None
 
 
+@dataclass(frozen=True)
+class MatrixJob:
+    """Single matrix execution job."""
+
+    months: int
+    indicator: str
+    rule: str
+
+
+@dataclass(frozen=True)
+class MatrixRunRecord:
+    """Manifest row for a matrix execution result."""
+
+    dataset_id: str
+    symbol: str
+    input_path: str
+    months: int
+    indicator: str
+    rule: str
+    status: str
+    output_path: str
+    row_count: int | None
+    condition_true_count: int | None
+    error: str
+
+
 def build_parser() -> argparse.ArgumentParser:
+    available_indicators = ", ".join(get_indicator_registry().list_indicators())
     parser = argparse.ArgumentParser(
         description="Finance dataset analysis CLI with guided and command-based workflows."
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    run_parser = subparsers.add_parser("run", help="Run moving-average analysis.")
+    run_parser = subparsers.add_parser("run", help="Run configurable indicator analysis.")
     run_group = run_parser.add_mutually_exclusive_group(required=True)
     run_group.add_argument("--dataset", help="Dataset id from data/generated.")
     run_group.add_argument("--file", help="Path to a CSV file.")
-    run_parser.add_argument("--months", type=int, required=True, help="Moving average window size.")
+    run_parser.add_argument("--months", type=int, required=True, help="Indicator window size.")
+    run_parser.add_argument(
+        "--indicator",
+        default="sma",
+        help=f"Indicator type to calculate (available: {available_indicators}).",
+    )
+    run_parser.add_argument(
+        "--rule",
+        default="indicator > open",
+        help="Screening rule in the form 'left_operand operator right_operand'.",
+    )
     run_parser.add_argument("--output", help="Optional output CSV path.")
     run_parser.add_argument(
         "--refresh",
         action="store_true",
         help="Refresh a generated symbol-backed dataset before analysis.",
+    )
+
+    matrix_parser = subparsers.add_parser(
+        "matrix",
+        help="Run the fixed indicator/rule/month matrix across all generated datasets.",
+    )
+    matrix_parser.add_argument(
+        "--output-dir",
+        help="Optional directory for matrix outputs and manifest.",
     )
 
     datasets_parser = subparsers.add_parser("datasets", help="Manage generated datasets.")
@@ -121,6 +179,9 @@ def dispatch_command(args: argparse.Namespace) -> int:
     if args.command == "run":
         handle_run_command(args)
         return 0
+    if args.command == "matrix":
+        handle_matrix_command(args)
+        return 0
     if args.command == "datasets":
         handle_datasets_command(args)
         return 0
@@ -131,7 +192,36 @@ def handle_run_command(args: argparse.Namespace) -> None:
     datasets = discover_datasets() if args.dataset else []
     source = resolve_run_source(args, datasets)
     output_path = Path(args.output).expanduser() if args.output else build_default_output_path(source.input_path)
-    execute_analysis(source, months=args.months, output_path=output_path, refresh_requested=args.refresh)
+    config = AnalysisConfig(
+        months=args.months,
+        indicator_type=args.indicator.strip().lower(),
+        rule=args.rule,
+    )
+    execute_analysis(source, config=config, output_path=output_path, refresh_requested=args.refresh)
+
+
+def handle_matrix_command(args: argparse.Namespace) -> None:
+    datasets = discover_datasets()
+    if not datasets:
+        raise FinanceCliError("No generated datasets were found for matrix execution.")
+
+    jobs = build_matrix_jobs()
+    output_dir = build_matrix_output_dir(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    total_jobs = len(datasets) * len(jobs)
+    print(
+        f"Matrix run starting: datasets={len(datasets)}, jobs_per_dataset={len(jobs)}, "
+        f"total_jobs={total_jobs}, output_dir={output_dir}"
+    )
+
+    records = run_matrix_jobs(datasets, jobs, output_dir)
+    manifest_path = write_matrix_manifest(records, output_dir)
+    success_count = sum(record.status == "success" for record in records)
+    failed_count = len(records) - success_count
+    print(
+        f"Matrix run complete: total_jobs={len(records)}, succeeded={success_count}, "
+        f"failed={failed_count}, manifest={manifest_path}"
+    )
 
 
 def resolve_run_source(args: argparse.Namespace, datasets: list[DatasetConfig]) -> ResolvedSource:
@@ -140,6 +230,168 @@ def resolve_run_source(args: argparse.Namespace, datasets: list[DatasetConfig]) 
         return resolve_dataset_source(dataset)
 
     return resolve_custom_source(args.file)
+
+
+def build_matrix_jobs() -> list[MatrixJob]:
+    jobs: list[MatrixJob] = []
+    indicators = get_indicator_registry().list_indicators()
+    for months in MATRIX_MONTHS:
+        for indicator in indicators:
+            for operator in MATRIX_RULE_OPERATORS:
+                for column in MATRIX_RULE_COLUMNS:
+                    jobs.append(
+                        MatrixJob(
+                            months=months,
+                            indicator=indicator,
+                            rule=f"indicator {operator} {column}",
+                        )
+                    )
+    return jobs
+
+
+def build_matrix_output_dir(output_dir: str | None) -> Path:
+    if output_dir:
+        return Path(output_dir).expanduser()
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return Path("output") / "matrix" / timestamp
+
+
+def slugify_rule(rule: str) -> str:
+    parsed_rule = parse_rule(rule)
+    operator_slug = RULE_SLUG_OPERATOR_MAP[parsed_rule.operator]
+    return f"{parsed_rule.left_operand.lower()}-{operator_slug}-{parsed_rule.right_operand.lower()}"
+
+
+def build_matrix_output_path(output_dir: Path, dataset_id: str, job: MatrixJob) -> Path:
+    file_name = f"{dataset_id}__m{job.months}__{job.indicator}__{slugify_rule(job.rule)}.csv"
+    return output_dir / dataset_id / file_name
+
+
+def build_matrix_record(
+    *,
+    dataset: DatasetConfig,
+    input_path: Path,
+    job: MatrixJob,
+    output_path: Path,
+    status: str,
+    row_count: int | None,
+    condition_true_count: int | None,
+    error: str = "",
+) -> MatrixRunRecord:
+    return MatrixRunRecord(
+        dataset_id=dataset.id,
+        symbol=dataset.symbol or "",
+        input_path=str(input_path),
+        months=job.months,
+        indicator=job.indicator,
+        rule=job.rule,
+        status=status,
+        output_path=str(output_path),
+        row_count=row_count,
+        condition_true_count=condition_true_count,
+        error=error,
+    )
+
+
+def run_matrix_jobs(
+    datasets: list[DatasetConfig],
+    jobs: list[MatrixJob],
+    output_dir: Path,
+) -> list[MatrixRunRecord]:
+    records: list[MatrixRunRecord] = []
+    jobs_by_month = {
+        months: [job for job in jobs if job.months == months]
+        for months in MATRIX_MONTHS
+    }
+
+    for index, dataset in enumerate(datasets, start=1):
+        print(f"[{index}/{len(datasets)}] Running dataset '{dataset.id}'")
+        source = resolve_dataset_source(dataset)
+        input_path = source.input_path
+        try:
+            raw_dataframe = load_dataframe(input_path)
+            raw_dataframe = ensure_symbol_column(raw_dataframe, dataset.symbol)
+        except Exception as exc:
+            for job in jobs:
+                output_path = build_matrix_output_path(output_dir, dataset.id, job)
+                records.append(
+                    build_matrix_record(
+                        dataset=dataset,
+                        input_path=input_path,
+                        job=job,
+                        output_path=output_path,
+                        status="error",
+                        row_count=None,
+                        condition_true_count=None,
+                        error=str(exc),
+                    )
+                )
+            continue
+
+        for months in MATRIX_MONTHS:
+            month_jobs = jobs_by_month[months]
+            try:
+                prepared_dataframe = prepare_dataframe(raw_dataframe, months)
+            except Exception as exc:
+                for job in month_jobs:
+                    output_path = build_matrix_output_path(output_dir, dataset.id, job)
+                    records.append(
+                        build_matrix_record(
+                            dataset=dataset,
+                            input_path=input_path,
+                            job=job,
+                            output_path=output_path,
+                            status="error",
+                            row_count=None,
+                            condition_true_count=None,
+                            error=str(exc),
+                        )
+                    )
+                continue
+
+            for job in month_jobs:
+                output_path = build_matrix_output_path(output_dir, dataset.id, job)
+                config = AnalysisConfig(
+                    months=job.months,
+                    indicator_type=job.indicator,
+                    rule=job.rule,
+                )
+                try:
+                    analyzed_dataframe = analyze_dataframe_with_config(prepared_dataframe, config)
+                    save_dataframe(analyzed_dataframe, output_path)
+                    records.append(
+                        build_matrix_record(
+                            dataset=dataset,
+                            input_path=input_path,
+                            job=job,
+                            output_path=output_path,
+                            status="success",
+                            row_count=len(analyzed_dataframe),
+                            condition_true_count=int(analyzed_dataframe["condition"].sum()),
+                        )
+                    )
+                except Exception as exc:
+                    records.append(
+                        build_matrix_record(
+                            dataset=dataset,
+                            input_path=input_path,
+                            job=job,
+                            output_path=output_path,
+                            status="error",
+                            row_count=None,
+                            condition_true_count=None,
+                            error=str(exc),
+                        )
+                    )
+
+    return records
+
+
+def write_matrix_manifest(records: list[MatrixRunRecord], output_dir: Path) -> Path:
+    manifest_path = output_dir / "manifest.csv"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([asdict(record) for record in records]).to_csv(manifest_path, index=False)
+    return manifest_path
 
 
 def handle_datasets_command(args: argparse.Namespace) -> None:
@@ -185,6 +437,8 @@ def run_wizard() -> None:
     selection = prompt_for_source(datasets)
     source = selection.source
     months = prompt_for_months()
+    indicator_type = prompt_for_indicator()
+    rule = prompt_for_rule()
     refresh_requested = (
         not selection.created_now
         and source.dataset is not None
@@ -194,7 +448,8 @@ def run_wizard() -> None:
 
     default_output = build_default_output_path(source.input_path)
     output_path = prompt_for_output_path(default_output)
-    execute_analysis(source, months=months, output_path=output_path, refresh_requested=refresh_requested)
+    config = AnalysisConfig(months=months, indicator_type=indicator_type, rule=rule)
+    execute_analysis(source, config=config, output_path=output_path, refresh_requested=refresh_requested)
 
 
 def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
@@ -309,11 +564,37 @@ def prompt_for_symbol_dataset() -> WizardSourceChoice:
 
 def prompt_for_months() -> int:
     while True:
-        response = input("Enter the moving average window (examples: 3, 6, 12): ").strip()
+        response = input("Enter the indicator window (examples: 3, 6, 12): ").strip()
         try:
             return int(response)
         except ValueError:
             print("Please enter a whole number, for example 3, 6, or 12.")
+
+
+def prompt_for_indicator() -> str:
+    available = get_indicator_registry().list_indicators()
+    default_indicator = "sma"
+    while True:
+        response = input(
+            f"Enter the indicator [{default_indicator}] (available: {', '.join(available)}): "
+        ).strip()
+        indicator = default_indicator if not response else response.lower()
+        if indicator in available:
+            return indicator
+        print(f"Please choose one of: {', '.join(available)}.")
+
+
+def prompt_for_rule() -> str:
+    default_rule = "indicator > open"
+    while True:
+        response = input(
+            f"Enter the screening rule [{default_rule}] (example: indicator > close): "
+        ).strip()
+        candidate = default_rule if not response else response
+        try:
+            return format_rule(parse_rule(candidate))
+        except FinanceCliError as exc:
+            print(f"Error: {exc}")
 
 
 def prompt_for_output_path(default_output: Path) -> Path:
@@ -341,7 +622,7 @@ def prompt_yes_no(prompt: str, default: bool = False) -> bool:
 def execute_analysis(
     source: ResolvedSource,
     *,
-    months: int,
+    config: AnalysisConfig,
     output_path: Path,
     refresh_requested: bool,
 ) -> None:
@@ -354,9 +635,16 @@ def execute_analysis(
         raw_dataframe,
         None if source.dataset is None else source.dataset.symbol,
     )
-    prepared_dataframe = prepare_dataframe(raw_dataframe, months)
-    analyzed_dataframe = analyze_dataframe(prepared_dataframe, months)
+    prepared_dataframe = prepare_dataframe(raw_dataframe, config.months)
+    normalized_rule = format_rule(parse_rule(config.rule))
+    use_legacy_defaults = config.indicator_type.strip().lower() == "sma" and normalized_rule == "indicator > open"
+    if use_legacy_defaults:
+        analyzed_dataframe = analyze_dataframe(prepared_dataframe, config.months)
+    else:
+        analyzed_dataframe = analyze_dataframe_with_config(prepared_dataframe, config)
 
+    print(f"Indicator: {config.indicator_type.upper()} (window={config.months})")
+    print(f"Rule: {normalized_rule}\n")
     print(render_filtered_rows(analyzed_dataframe))
     save_dataframe(analyzed_dataframe, output_path)
     print(f"\nProcessed data saved to: {output_path}")

@@ -1,6 +1,6 @@
 # Finance CLI
 
-Finance CLI is a CSV-first command-line tool for screening ETF, stock, and similar market datasets with a monthly moving-average rule.
+Finance CLI is a CSV-first command-line tool for screening ETF, stock, and similar market datasets with configurable monthly indicators and screening rules.
 
 It supports three practical workflows:
 
@@ -13,9 +13,9 @@ It supports three practical workflows:
 The project is built around a simple market-screening idea:
 
 - load monthly price history
-- compare the current monthly `open` to its rolling average over a chosen number of months
+- calculate a selected indicator on monthly `open` over a chosen number of months
 - compute two gap ratios that show how far the current `open` sits above or below that average
-- mark each row with a binary condition: `1` when the moving average is above the current `open`, otherwise `0`
+- mark each row with a binary condition from a configurable rule such as `indicator > open`
 
 This is best understood as a lightweight trend-following or time-series-momentum style screen, not as a complete investment system.
 
@@ -51,10 +51,16 @@ Run a generated dataset directly:
 python3 dynamic_range_average.py run --dataset 500_pa --months 6
 ```
 
+Run with a different indicator and rule:
+
+```bash
+python3 dynamic_range_average.py run --dataset spy --months 6 --indicator ema --rule "indicator > close"
+```
+
 Run your own CSV file:
 
 ```bash
-python3 dynamic_range_average.py run --file data/data_to_pyhton.csv --months 12
+python3 dynamic_range_average.py run --file path/to/custom.csv --months 12
 ```
 
 Refresh a generated symbol-backed dataset before running analysis:
@@ -119,7 +125,7 @@ Examples:
 Copy an existing CSV into generated storage using its source filename:
 
 ```bash
-python3 dynamic_range_average.py datasets add --path data/data_to_pyhton.csv
+python3 dynamic_range_average.py datasets add --path path/to/custom.csv
 ```
 
 If the imported file should support live refresh, provide the Yahoo symbol:
@@ -177,11 +183,17 @@ Before analysis, the app:
 
 For a chosen `--months` window, the app computes:
 
-- `Moving_Average` = rolling mean of monthly `open`
-- `condition = 1` when `Moving_Average > open`, else `0`
-- `moving_average_minus_open_over_open = (Moving_Average - open) / open`
-- `open_minus_moving_average_over_moving_average = (open - Moving_Average) / Moving_Average`
+- a selected indicator on monthly `open` using `--indicator` (`sma`, `ema`, `wma`)
+- `condition = 1` when the configured rule is true, else `0`
+- `moving_average_minus_open_over_open = (indicator - open) / open`
+- `open_minus_moving_average_over_moving_average = (open - indicator) / indicator`
 - `moving_average_window_months` = the entered window size for traceability
+
+Default behavior remains backward-compatible:
+
+- if you do not pass `--indicator` or `--rule`, the output keeps the legacy `Moving_Average` column
+- if you pass either option, the output uses indicator-specific column names such as `EMA_6_months`
+- non-default runs also add a `screening_rule` metadata column
 
 Financially, this is a simple screen for whether the current monthly open is below or above its recent average level.
 
@@ -270,7 +282,7 @@ Typical use:
 You can use the same moving-average methodology on an external CSV as long as it includes `date` and `open`:
 
 ```bash
-python3 dynamic_range_average.py run --file data/data_to_pyhton.csv --months 12
+python3 dynamic_range_average.py run --file path/to/custom.csv --months 12
 ```
 
 Typical use:
@@ -283,9 +295,9 @@ Typical use:
 
 The most useful interpretation is usually:
 
-- `condition = 1`: the moving average is above the current `open`
-- positive `moving_average_minus_open_over_open`: the current `open` is below its recent average
-- larger positive values in that primary gap column: the current `open` is further below its recent average
+- `condition = 1`: the configured rule evaluated to true for that row
+- positive `moving_average_minus_open_over_open`: the current `open` is below the selected indicator level
+- larger positive values in that primary gap column: the current `open` is further below its selected indicator level
 
 In practical screening terms, that means the project is most naturally used to find rows where price is trading below its recent average level, then inspect the size of that gap.
 
@@ -312,7 +324,7 @@ It uses a dynamic column order:
 
 - key fields first when present: `symbol`, the two gap columns, `date`, `open`
 - then the remaining source columns in their original CSV order
-- then analysis-derived columns such as `moving_average_window_months`, `Moving_Average`, and `condition`
+- then analysis-derived columns such as the indicator column, `moving_average_window_months`, `condition`, and optional `screening_rule`
 
 ### Processed CSV Output
 

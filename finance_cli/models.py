@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 
 @dataclass(frozen=True)
@@ -58,3 +59,40 @@ class RefreshSummary:
     min_date: str
     max_date: str
     backup_path: str
+
+
+@dataclass(frozen=True)
+class AnalysisConfig:
+    """Configuration for indicator calculation and screening rules."""
+
+    months: int
+    indicator_type: str = "sma"
+    rule: str = "indicator > open"
+
+    def __post_init__(self) -> None:
+        """Validate configuration parameters."""
+        from finance_cli.errors import AnalysisError
+
+        if self.months < 1:
+            raise AnalysisError("Months must be at least 1")
+
+
+@dataclass(frozen=True)
+class ParsedRule:
+    """Parsed screening rule components."""
+
+    left_operand: str
+    operator: str
+    right_operand: str
+
+    VALID_OPERATORS: ClassVar[set[str]] = {">", "<", ">=", "<="}
+
+    def __post_init__(self) -> None:
+        """Validate operator."""
+        from finance_cli.errors import AnalysisError
+
+        if self.operator not in self.VALID_OPERATORS:
+            valid = ", ".join(sorted(self.VALID_OPERATORS))
+            raise AnalysisError(
+                f"Invalid operator '{self.operator}'. Valid operators: {valid}"
+            )

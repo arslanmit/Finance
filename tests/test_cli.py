@@ -1,41 +1,53 @@
 from pathlib import Path
+import tempfile
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from finance_cli.catalog import discover_datasets
-from finance_cli.cli import build_parser, build_wizard_menu_items, main
+from finance_cli.cli import (
+    build_matrix_jobs,
+    build_matrix_output_path,
+    build_parser,
+    build_wizard_menu_items,
+    dispatch_command,
+    main,
+    slugify_rule,
+)
+from finance_cli.errors import AnalysisError
+from finance_cli.models import AnalysisConfig
 from finance_cli.models import RefreshSummary
 
 
-def write_csv(path: Path, *, symbol: str | None = None) -> None:
-    dataframe = pd.DataFrame(
+def build_price_dataframe(row_count: int = 3) -> pd.DataFrame:
+    dates = pd.date_range("2024-01-01", periods=row_count, freq="MS")
+    open_values = [float(10 + index) for index in range(row_count)]
+    return pd.DataFrame(
         {
-            "date": ["2024-01-01", "2024-02-01", "2024-03-01"],
-            "open": [10, 12, 11],
-            "high": [11, 13, 12],
-            "low": [9, 11, 10],
-            "close": [10.5, 12.5, 11.5],
-            "volume": [100, 110, 120],
+            "date": dates.strftime("%Y-%m-%d"),
+            "open": open_values,
+            "high": [value + 1.0 for value in open_values],
+            "low": [value - 1.0 for value in open_values],
+            "close": [value + 0.5 for value in open_values],
+            "volume": [100 + index for index in range(row_count)],
         }
     )
+
+
+def write_csv(path: Path, *, symbol: str | None = None, row_count: int = 3) -> None:
+    dataframe = build_price_dataframe(row_count)
     if symbol is not None:
         dataframe.insert(0, "symbol", symbol)
     path.parent.mkdir(parents=True, exist_ok=True)
     dataframe.to_csv(path, index=False)
 
 
-def monthly_frame() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
-            "open": [10.0, 12.0, 11.0],
-            "high": [11.0, 13.0, 12.0],
-            "low": [9.0, 11.0, 10.0],
-            "close": [10.5, 12.5, 11.5],
-            "volume": [100, 110, 120],
-        }
-    )
+def monthly_frame(row_count: int = 3) -> pd.DataFrame:
+    dataframe = build_price_dataframe(row_count)
+    dataframe["date"] = pd.to_datetime(dataframe["date"])
+    return dataframe
 
 
 def test_datasets_list_command_uses_generated_discovery_only(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -79,6 +91,9 @@ def test_run_command_with_generated_dataset(
     assert code == 0
     assert (tmp_path / "output" / f"{dataset_id}_processed.csv").exists()
     assert expected_symbol in output
+    written = pd.read_csv(tmp_path / "output" / f"{dataset_id}_processed.csv")
+    assert "Moving_Average" in written.columns
+    assert "screening_rule" not in written.columns
 
 
 def test_run_command_with_custom_file(tmp_path: Path, capsys) -> None:
@@ -92,6 +107,84 @@ def test_run_command_with_custom_file(tmp_path: Path, capsys) -> None:
     assert code == 0
     assert "Processed data saved to:" in output
     assert output_path.exists()
+    written = pd.read_csv(output_path)
+    assert "Moving_Average" in written.columns
+    assert "screening_rule" not in written.columns
+
+
+def test_run_command_with_indicator_and_rule(tmp_path: Path, capsys) -> None:
+    csv_path = tmp_path / "unmanaged.csv"
+    output_path = tmp_path / "custom_output.csv"
+    write_csv(csv_path)
+
+    code = main(
+        [
+            "run",
+            "--file",
+            str(csv_path),
+            "--months",
+            "2",
+            "--indicator",
+            "ema",
+            "--rule",
+            "indicator < close",
+            "--output",
+            str(output_path),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Indicator: EMA (window=2)" in output
+    assert "Rule: indicator < close" in output
+    written = pd.read_csv(output_path)
+    assert "EMA_2_months" in written.columns
+    assert "screening_rule" in written.columns
+
+
+@given(
+    indicator_type=st.sampled_from(["sma", "ema", "wma"]),
+    operator=st.sampled_from([">", "<", ">=", "<="]),
+    right_operand=st.sampled_from(["open", "close", "high", "low"]),
+)
+@settings(max_examples=20)
+def test_property_cli_indicator_pass_through(
+    indicator_type: str,
+    operator: str,
+    right_operand: str,
+) -> None:
+    captured: dict[str, AnalysisConfig] = {}
+    with tempfile.TemporaryDirectory() as temp_dir:
+        csv_path = Path(temp_dir) / "input.csv"
+        write_csv(csv_path)
+
+        def fake_execute_analysis(source, *, config, output_path, refresh_requested):
+            captured["config"] = config
+            captured["output_path"] = output_path
+            captured["refresh_requested"] = refresh_requested
+
+        with patch("finance_cli.cli.execute_analysis", fake_execute_analysis):
+            exit_code = main(
+                [
+                    "run",
+                    "--file",
+                    str(csv_path),
+                    "--months",
+                    "3",
+                    "--indicator",
+                    indicator_type,
+                    "--rule",
+                    f"indicator {operator} {right_operand}",
+                ]
+            )
+
+        assert exit_code == 0
+        assert captured["config"] == AnalysisConfig(
+            months=3,
+            indicator_type=indicator_type,
+            rule=f"indicator {operator} {right_operand}",
+        )
+        assert captured["refresh_requested"] is False
 
 
 def test_run_command_rejects_excel_custom_file(tmp_path: Path, capsys) -> None:
@@ -110,6 +203,75 @@ def test_parser_rejects_removed_sheet_flag_for_run() -> None:
 
     with pytest.raises(SystemExit):
         parser.parse_args(["run", "--file", "sample.csv", "--sheet", "Sheet1", "--months", "2"])
+
+
+def test_parser_accepts_indicator_and_rule_flags() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "run",
+            "--file",
+            "sample.csv",
+            "--months",
+            "2",
+            "--indicator",
+            "wma",
+            "--rule",
+            "indicator >= close",
+        ]
+    )
+
+    assert args.indicator == "wma"
+    assert args.rule == "indicator >= close"
+
+
+def test_parser_accepts_matrix_output_dir_and_dispatches() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["matrix", "--output-dir", "tmp/matrix"])
+
+    assert args.output_dir == "tmp/matrix"
+
+    with patch("finance_cli.cli.handle_matrix_command") as handler:
+        exit_code = dispatch_command(args)
+
+    assert exit_code == 0
+    handler.assert_called_once_with(args)
+
+
+def test_build_matrix_jobs_returns_fixed_240_job_matrix() -> None:
+    jobs = build_matrix_jobs()
+
+    assert len(jobs) == 240
+    assert len({(job.months, job.indicator, job.rule) for job in jobs}) == 240
+    assert len({job.rule for job in jobs}) == 16
+    assert jobs[0].months == 1
+    assert jobs[0].indicator == "ema"
+    assert jobs[0].rule == "indicator > open"
+    assert jobs[-1].months == 24
+    assert jobs[-1].indicator == "wma"
+    assert jobs[-1].rule == "indicator <= close"
+
+
+@pytest.mark.parametrize(
+    ("rule", "expected"),
+    [
+        ("indicator > open", "indicator-gt-open"),
+        ("indicator < high", "indicator-lt-high"),
+        ("indicator >= low", "indicator-gte-low"),
+        ("indicator <= close", "indicator-lte-close"),
+    ],
+)
+def test_slugify_rule_maps_supported_operators(rule: str, expected: str) -> None:
+    assert slugify_rule(rule) == expected
+
+
+def test_build_matrix_output_path_is_deterministic(tmp_path: Path) -> None:
+    job = build_matrix_jobs()[-1]
+
+    path = build_matrix_output_path(tmp_path, "nvda", job)
+
+    assert path == tmp_path / "nvda" / "nvda__m24__wma__indicator-lte-close.csv"
 
 
 def test_parser_rejects_removed_sheet_flag_for_add() -> None:
@@ -302,3 +464,147 @@ def test_wizard_menu_order_shows_actions_before_generated_datasets(tmp_path: Pat
     assert [item.alias for item in items] == ["create", "custom", "500_pa", "nvda"]
     assert items[0].label == "create - Create a new dataset from a Yahoo symbol"
     assert items[2].label == "500_pa [refresh available]"
+
+
+def test_wizard_run_uses_indicator_and_rule_prompts(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
+    responses = iter(["nvda", "2", "ema", "indicator < close", "n", ""])
+    monkeypatch.setattr("builtins.input", lambda _: next(responses))
+
+    code = main([])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Indicator: EMA (window=2)" in output
+    assert "Rule: indicator < close" in output
+    written = pd.read_csv(tmp_path / "output" / "nvda_processed.csv")
+    assert "EMA_2_months" in written.columns
+    assert "screening_rule" in written.columns
+
+
+def test_wizard_default_indicator_and_rule_preserve_legacy_output(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA")
+    responses = iter(["nvda", "2", "", "", "n", ""])
+    monkeypatch.setattr("builtins.input", lambda _: next(responses))
+
+    code = main([])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Indicator: SMA (window=2)" in output
+    assert "Rule: indicator > open" in output
+    written = pd.read_csv(tmp_path / "output" / "nvda_processed.csv")
+    assert "Moving_Average" in written.columns
+    assert "screening_rule" not in written.columns
+
+
+def test_matrix_command_writes_all_outputs_and_manifest(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA", row_count=30)
+    output_dir = tmp_path / "matrix-output"
+
+    code = main(["matrix", "--output-dir", str(output_dir)])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Matrix run starting:" in output
+    assert "Matrix run complete:" in output
+
+    manifest_path = output_dir / "manifest.csv"
+    assert manifest_path.exists()
+    manifest = pd.read_csv(manifest_path)
+    assert list(manifest.columns) == [
+        "dataset_id",
+        "symbol",
+        "input_path",
+        "months",
+        "indicator",
+        "rule",
+        "status",
+        "output_path",
+        "row_count",
+        "condition_true_count",
+        "error",
+    ]
+    assert len(manifest) == 240
+    assert manifest["status"].eq("success").all()
+    assert manifest["row_count"].eq(30).all()
+    assert manifest["condition_true_count"].notna().all()
+
+    sample_output = Path(manifest.iloc[0]["output_path"])
+    assert sample_output.exists()
+    written = pd.read_csv(sample_output)
+    assert "Moving_Average" not in written.columns
+    assert "screening_rule" in written.columns
+    assert any(column.endswith("_months") and column != "moving_average_window_months" for column in written.columns)
+
+
+def test_matrix_command_records_prepare_failures_per_affected_month(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA", row_count=12)
+    output_dir = tmp_path / "matrix-output"
+
+    code = main(["matrix", "--output-dir", str(output_dir)])
+
+    assert code == 0
+    manifest = pd.read_csv(output_dir / "manifest.csv")
+    failing_rows = manifest[manifest["status"] == "error"]
+    success_rows = manifest[manifest["status"] == "success"]
+
+    assert len(manifest) == 240
+    assert len(failing_rows) == 48
+    assert failing_rows["months"].eq(24).all()
+    assert failing_rows["error"].str.contains("Months must be between 1 and 12").all()
+    assert len(success_rows) == 192
+
+
+def test_matrix_command_records_analysis_failure_and_continues(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_csv(tmp_path / "data" / "generated" / "nvda.csv", symbol="NVDA", row_count=30)
+    output_dir = tmp_path / "matrix-output"
+
+    from finance_cli.analysis import analyze_dataframe_with_config as real_analyze_dataframe_with_config
+
+    def fake_analyze(dataframe: pd.DataFrame, config: AnalysisConfig) -> pd.DataFrame:
+        if config.months == 12 and config.indicator_type == "ema" and config.rule == "indicator <= close":
+            raise AnalysisError("forced matrix analysis failure")
+        return real_analyze_dataframe_with_config(dataframe, config)
+
+    monkeypatch.setattr("finance_cli.cli.analyze_dataframe_with_config", fake_analyze)
+
+    code = main(["matrix", "--output-dir", str(output_dir)])
+
+    assert code == 0
+    manifest = pd.read_csv(output_dir / "manifest.csv")
+    failure = manifest[
+        (manifest["months"] == 12)
+        & (manifest["indicator"] == "ema")
+        & (manifest["rule"] == "indicator <= close")
+    ]
+
+    assert len(manifest) == 240
+    assert len(failure) == 1
+    assert failure.iloc[0]["status"] == "error"
+    assert "forced matrix analysis failure" in failure.iloc[0]["error"]
+    assert manifest["status"].eq("success").sum() == 239
+    assert (output_dir / "nvda" / "nvda__m12__ema__indicator-gt-open.csv").exists()
