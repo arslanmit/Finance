@@ -71,7 +71,7 @@ def test_main_returns_parser_exit_code_for_invalid_args(capsys) -> None:
 def test_dispatch_command_routes_run_command(monkeypatch) -> None:
     calls: list[str] = []
 
-    monkeypatch.setattr("finance_cli.cli.handle_run_command", lambda args: calls.append("run"))
+    monkeypatch.setattr("finance_cli.cli_handlers.handle_run_command", lambda args: calls.append("run"))
 
     assert dispatch_command(argparse.Namespace(command="run")) == 0
     assert calls == ["run"]
@@ -220,6 +220,26 @@ def test_wizard_helpers_are_available_from_wizard_module() -> None:
     assert menu_items[2].alias == "nvda"
 
 
+def test_build_parser_is_available_from_cli_parser_module() -> None:
+    from finance_cli.cli_parser import build_parser as build_cli_parser
+
+    parser = build_cli_parser()
+    args = parser.parse_args(["run", "--file", "sample.csv", "--months", "2"])
+
+    assert args.command == "run"
+    assert args.file == "sample.csv"
+
+
+def test_dispatch_command_is_available_from_cli_handlers_module(monkeypatch) -> None:
+    from finance_cli.cli_handlers import dispatch_command as dispatch_cli_command
+
+    calls: list[str] = []
+    monkeypatch.setattr("finance_cli.cli_handlers.handle_run_command", lambda args: calls.append("run"))
+
+    assert dispatch_cli_command(argparse.Namespace(command="run")) == 0
+    assert calls == ["run"]
+
+
 def test_datasets_list_command_uses_generated_discovery_only(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     write_csv(tmp_path / "data" / "generated" / "500_pa.csv", symbol="500.PA")
@@ -333,7 +353,7 @@ def test_property_cli_indicator_pass_through(
             captured["output_path"] = output_path
             captured["refresh_requested"] = refresh_requested
 
-        with patch("finance_cli.cli.execute_analysis", fake_execute_analysis):
+        with patch("finance_cli.cli_handlers.execute_analysis", fake_execute_analysis):
             exit_code = main(
                 [
                     "run",
@@ -402,7 +422,7 @@ def test_parser_accepts_matrix_output_dir_and_dispatches() -> None:
 
     assert args.output_dir == "tmp/matrix"
 
-    with patch("finance_cli.cli.handle_matrix_command") as handler:
+    with patch("finance_cli.cli_handlers.handle_matrix_command") as handler:
         exit_code = dispatch_command(args)
 
     assert exit_code == 0
