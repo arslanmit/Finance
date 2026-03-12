@@ -60,6 +60,7 @@ logs/
 local_settings.py
 tmp/refresh_backups/
 .worktrees/
+output/
 
 # Byte-compiled / optimized / DLL files
 *.py[cod]
