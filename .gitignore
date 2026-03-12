@@ -59,6 +59,7 @@ logs/
 # Local development
 local_settings.py
 tmp/refresh_backups/
+.worktrees/
 
 # Byte-compiled / optimized / DLL files
 *.py[cod]
