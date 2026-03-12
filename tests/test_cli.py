@@ -18,7 +18,7 @@ from finance_cli.cli import (
     slugify_rule,
 )
 from finance_cli.errors import AnalysisError
-from finance_cli.models import AnalysisConfig, DatasetConfig, RefreshMetadata
+from finance_cli.models import AnalysisConfig, DatasetConfig, RefreshMetadata, ResolvedSource
 from finance_cli.models import RefreshSummary
 
 
@@ -123,6 +123,71 @@ def test_print_refresh_summary_formats_expected_fields(capsys) -> None:
     assert "range=2024-01-01..2026-01-01" in output
     assert "rows=30" in output
     assert "backup=/tmp/backup.csv" in output
+
+
+def test_execute_analysis_writes_legacy_output_for_default_config(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    from finance_cli.run_workflow import execute_analysis
+
+    csv_path = tmp_path / "input.csv"
+    output_path = tmp_path / "output.csv"
+    write_csv(csv_path)
+
+    execute_analysis(
+        ResolvedSource(input_path=csv_path, dataset=None),
+        config=AnalysisConfig(months=2),
+        output_path=output_path,
+        refresh_requested=False,
+    )
+
+    output = capsys.readouterr().out
+    written = pd.read_csv(output_path)
+
+    assert "Indicator: SMA (window=2)" in output
+    assert "Rule: indicator > open" in output
+    assert "Moving_Average" in written.columns
+    assert "screening_rule" not in written.columns
+
+
+def test_refresh_generated_datasets_returns_only_refreshable_matches() -> None:
+    from finance_cli.run_workflow import refresh_generated_datasets
+
+    refreshable = DatasetConfig(
+        id="nvda",
+        label="nvda",
+        path="data/generated/nvda.csv",
+        refresh=RefreshMetadata(provider="yahoo", symbol="NVDA"),
+        base_dir=Path("/tmp"),
+    )
+    non_refreshable = DatasetConfig(
+        id="custom",
+        label="custom",
+        path="data/generated/custom.csv",
+        refresh=None,
+        base_dir=Path("/tmp"),
+    )
+
+    with patch("finance_cli.run_workflow.refresh_selected_source") as mock_refresh, patch(
+        "finance_cli.run_workflow.resolve_dataset_source",
+        return_value=ResolvedSource(input_path=Path("/tmp/data/generated/nvda.csv"), dataset=refreshable),
+    ):
+        mock_refresh.return_value = RefreshSummary(
+            symbol="NVDA",
+            row_count=30,
+            min_date="2024-01-01",
+            max_date="2026-01-01",
+            backup_path="/tmp/backup.csv",
+        )
+
+        refreshed = refresh_generated_datasets(
+            [refreshable, non_refreshable],
+            dataset_id=None,
+            refresh_all=True,
+        )
+
+    assert refreshed == [(refreshable, mock_refresh.return_value)]
 
 
 def test_datasets_list_command_uses_generated_discovery_only(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -470,7 +535,7 @@ def test_datasets_refresh_single_command(tmp_path: Path, monkeypatch, capsys) ->
             backup_path="tmp/refresh_backups/live.backup.csv",
         )
 
-    monkeypatch.setattr("finance_cli.cli.refresh_selected_source", fake_refresh)
+    monkeypatch.setattr("finance_cli.run_workflow.refresh_selected_source", fake_refresh)
 
     code = main(["datasets", "refresh", "--id", "live"])
     output = capsys.readouterr().out
@@ -503,7 +568,7 @@ def test_datasets_refresh_all_uses_only_generated_symbol_backed_datasets(
             backup_path=f"tmp/refresh_backups/{source.dataset.id}.backup.csv",
         )
 
-    monkeypatch.setattr("finance_cli.cli.refresh_selected_source", fake_refresh)
+    monkeypatch.setattr("finance_cli.run_workflow.refresh_selected_source", fake_refresh)
 
     code = main(["datasets", "refresh", "--all"])
     output = capsys.readouterr().out
