@@ -2,6 +2,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+IGNORED_OS_JUNK_PREFIXES = (".worktrees/",)
 
 
 def test_repo_has_no_excel_files() -> None:
@@ -18,7 +19,9 @@ def test_repo_has_no_os_junk_files() -> None:
     junk_files = [
         path.relative_to(ROOT).as_posix()
         for path in ROOT.rglob("*")
-        if path.is_file() and path.name == ".DS_Store"
+        if path.is_file()
+        and path.name == ".DS_Store"
+        and not path.relative_to(ROOT).as_posix().startswith(IGNORED_OS_JUNK_PREFIXES)
     ]
 
     assert junk_files == []
