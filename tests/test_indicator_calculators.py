@@ -14,6 +14,19 @@ from finance_cli.analysis import (
 class TestSMACalculator:
     """Tests for Simple Moving Average calculator."""
 
+    def test_calculators_are_available_from_indicator_module(self) -> None:
+        from finance_cli.analysis_indicators import (
+            calculate_ema as calculate_ema_module,
+            calculate_sma as calculate_sma_module,
+            calculate_wma as calculate_wma_module,
+        )
+
+        series = pd.Series([1.0, 2.0, 3.0])
+
+        assert len(calculate_sma_module(series, 2)) == len(series)
+        assert len(calculate_ema_module(series, 2)) == len(series)
+        assert len(calculate_wma_module(series, 2)) == len(series)
+
     def test_sma_with_known_values(self) -> None:
         """Test SMA calculation with known input/output values."""
         series = pd.Series([2.0, 4.0, 6.0, 8.0, 10.0])

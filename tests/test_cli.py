@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -17,7 +18,7 @@ from finance_cli.cli import (
     slugify_rule,
 )
 from finance_cli.errors import AnalysisError
-from finance_cli.models import AnalysisConfig
+from finance_cli.models import AnalysisConfig, DatasetConfig, RefreshMetadata, ResolvedSource
 from finance_cli.models import RefreshSummary
 
 
@@ -48,6 +49,195 @@ def monthly_frame(row_count: int = 3) -> pd.DataFrame:
     dataframe = build_price_dataframe(row_count)
     dataframe["date"] = pd.to_datetime(dataframe["date"])
     return dataframe
+
+
+def test_main_without_args_runs_wizard(monkeypatch) -> None:
+    called = {"wizard": False}
+
+    def fake_run_wizard() -> None:
+        called["wizard"] = True
+
+    monkeypatch.setattr("finance_cli.cli.run_wizard", fake_run_wizard)
+
+    assert main([]) == 0
+    assert called["wizard"] is True
+
+
+def test_main_returns_parser_exit_code_for_invalid_args(capsys) -> None:
+    assert main(["run"]) == 2
+    assert "usage:" in capsys.readouterr().err
+
+
+def test_dispatch_command_routes_run_command(monkeypatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr("finance_cli.cli_handlers.handle_run_command", lambda args: calls.append("run"))
+
+    assert dispatch_command(argparse.Namespace(command="run")) == 0
+    assert calls == ["run"]
+
+
+def test_print_dataset_list_formats_sorted_output(capsys) -> None:
+    from finance_cli.presentation import print_dataset_list
+
+    datasets = [
+        DatasetConfig(
+            id="nvda",
+            label="nvda",
+            path="data/generated/nvda.csv",
+            refresh=RefreshMetadata(provider="yahoo", symbol="NVDA"),
+            base_dir=Path("/tmp"),
+        ),
+        DatasetConfig(
+            id="custom",
+            label="custom",
+            path="data/generated/custom.csv",
+            refresh=None,
+            base_dir=Path("/tmp"),
+        ),
+    ]
+
+    print_dataset_list(datasets)
+    output = capsys.readouterr().out
+
+    assert "Available datasets:" in output
+    assert "- custom | file: custom.csv | refresh: no" in output
+    assert "- nvda | file: nvda.csv | refresh: yes" in output
+
+
+def test_print_refresh_summary_formats_expected_fields(capsys) -> None:
+    from finance_cli.presentation import print_refresh_summary
+
+    print_refresh_summary(
+        RefreshSummary(
+            symbol="NVDA",
+            row_count=30,
+            min_date="2024-01-01",
+            max_date="2026-01-01",
+            backup_path="/tmp/backup.csv",
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert "Refresh summary: symbol=NVDA" in output
+    assert "range=2024-01-01..2026-01-01" in output
+    assert "rows=30" in output
+    assert "backup=/tmp/backup.csv" in output
+
+
+def test_execute_analysis_writes_legacy_output_for_default_config(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    from finance_cli.run_workflow import execute_analysis
+
+    csv_path = tmp_path / "input.csv"
+    output_path = tmp_path / "output.csv"
+    write_csv(csv_path)
+
+    execute_analysis(
+        ResolvedSource(input_path=csv_path, dataset=None),
+        config=AnalysisConfig(months=2),
+        output_path=output_path,
+        refresh_requested=False,
+    )
+
+    output = capsys.readouterr().out
+    written = pd.read_csv(output_path)
+
+    assert "Indicator: SMA (window=2)" in output
+    assert "Rule: indicator > open" in output
+    assert "Moving_Average" in written.columns
+    assert "screening_rule" not in written.columns
+
+
+def test_refresh_generated_datasets_returns_only_refreshable_matches() -> None:
+    from finance_cli.run_workflow import refresh_generated_datasets
+
+    refreshable = DatasetConfig(
+        id="nvda",
+        label="nvda",
+        path="data/generated/nvda.csv",
+        refresh=RefreshMetadata(provider="yahoo", symbol="NVDA"),
+        base_dir=Path("/tmp"),
+    )
+    non_refreshable = DatasetConfig(
+        id="custom",
+        label="custom",
+        path="data/generated/custom.csv",
+        refresh=None,
+        base_dir=Path("/tmp"),
+    )
+
+    with patch("finance_cli.run_workflow.refresh_selected_source") as mock_refresh, patch(
+        "finance_cli.run_workflow.resolve_dataset_source",
+        return_value=ResolvedSource(input_path=Path("/tmp/data/generated/nvda.csv"), dataset=refreshable),
+    ):
+        mock_refresh.return_value = RefreshSummary(
+            symbol="NVDA",
+            row_count=30,
+            min_date="2024-01-01",
+            max_date="2026-01-01",
+            backup_path="/tmp/backup.csv",
+        )
+
+        refreshed = refresh_generated_datasets(
+            [refreshable, non_refreshable],
+            dataset_id=None,
+            refresh_all=True,
+        )
+
+    assert refreshed == [(refreshable, mock_refresh.return_value)]
+
+
+def test_matrix_helpers_are_available_from_matrix_module(tmp_path: Path) -> None:
+    from finance_cli.matrix import build_matrix_jobs, build_matrix_output_path
+
+    jobs = build_matrix_jobs()
+    output_path = build_matrix_output_path(tmp_path, "nvda", jobs[0])
+
+    assert len(jobs) == 240
+    assert output_path.parent == tmp_path / "nvda"
+    assert output_path.name.startswith("nvda__m")
+
+
+def test_wizard_helpers_are_available_from_wizard_module() -> None:
+    from finance_cli.wizard import build_wizard_menu_items
+
+    datasets = [
+        DatasetConfig(
+            id="nvda",
+            label="nvda",
+            path="data/generated/nvda.csv",
+            refresh=RefreshMetadata(provider="yahoo", symbol="NVDA"),
+            base_dir=Path("/tmp"),
+        )
+    ]
+
+    menu_items = build_wizard_menu_items(datasets)
+
+    assert [item.alias for item in menu_items[:2]] == ["create", "custom"]
+    assert menu_items[2].alias == "nvda"
+
+
+def test_build_parser_is_available_from_cli_parser_module() -> None:
+    from finance_cli.cli_parser import build_parser as build_cli_parser
+
+    parser = build_cli_parser()
+    args = parser.parse_args(["run", "--file", "sample.csv", "--months", "2"])
+
+    assert args.command == "run"
+    assert args.file == "sample.csv"
+
+
+def test_dispatch_command_is_available_from_cli_handlers_module(monkeypatch) -> None:
+    from finance_cli.cli_handlers import dispatch_command as dispatch_cli_command
+
+    calls: list[str] = []
+    monkeypatch.setattr("finance_cli.cli_handlers.handle_run_command", lambda args: calls.append("run"))
+
+    assert dispatch_cli_command(argparse.Namespace(command="run")) == 0
+    assert calls == ["run"]
 
 
 def test_datasets_list_command_uses_generated_discovery_only(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -163,7 +353,7 @@ def test_property_cli_indicator_pass_through(
             captured["output_path"] = output_path
             captured["refresh_requested"] = refresh_requested
 
-        with patch("finance_cli.cli.execute_analysis", fake_execute_analysis):
+        with patch("finance_cli.cli_handlers.execute_analysis", fake_execute_analysis):
             exit_code = main(
                 [
                     "run",
@@ -232,7 +422,7 @@ def test_parser_accepts_matrix_output_dir_and_dispatches() -> None:
 
     assert args.output_dir == "tmp/matrix"
 
-    with patch("finance_cli.cli.handle_matrix_command") as handler:
+    with patch("finance_cli.cli_handlers.handle_matrix_command") as handler:
         exit_code = dispatch_command(args)
 
     assert exit_code == 0
@@ -395,7 +585,7 @@ def test_datasets_refresh_single_command(tmp_path: Path, monkeypatch, capsys) ->
             backup_path="tmp/refresh_backups/live.backup.csv",
         )
 
-    monkeypatch.setattr("finance_cli.cli.refresh_selected_source", fake_refresh)
+    monkeypatch.setattr("finance_cli.run_workflow.refresh_selected_source", fake_refresh)
 
     code = main(["datasets", "refresh", "--id", "live"])
     output = capsys.readouterr().out
@@ -428,7 +618,7 @@ def test_datasets_refresh_all_uses_only_generated_symbol_backed_datasets(
             backup_path=f"tmp/refresh_backups/{source.dataset.id}.backup.csv",
         )
 
-    monkeypatch.setattr("finance_cli.cli.refresh_selected_source", fake_refresh)
+    monkeypatch.setattr("finance_cli.run_workflow.refresh_selected_source", fake_refresh)
 
     code = main(["datasets", "refresh", "--all"])
     output = capsys.readouterr().out
@@ -590,7 +780,7 @@ def test_matrix_command_records_analysis_failure_and_continues(
             raise AnalysisError("forced matrix analysis failure")
         return real_analyze_dataframe_with_config(dataframe, config)
 
-    monkeypatch.setattr("finance_cli.cli.analyze_dataframe_with_config", fake_analyze)
+    monkeypatch.setattr("finance_cli.matrix.analyze_dataframe_with_config", fake_analyze)
 
     code = main(["matrix", "--output-dir", str(output_dir)])
 

@@ -55,6 +55,40 @@ def test_prepare_dataframe_rejects_invalid_months() -> None:
         prepare_dataframe(dataframe, months=3)
 
 
+def test_rule_helpers_are_available_from_rule_module() -> None:
+    from finance_cli.analysis_rules import evaluate_rule as evaluate_rule_module
+    from finance_cli.analysis_rules import format_rule as format_rule_module
+    from finance_cli.analysis_rules import parse_rule as parse_rule_module
+
+    dataframe = pd.DataFrame(
+        {
+            "EMA_2_months": [12.0, 9.0],
+            "open": [10.0, 10.0],
+        }
+    )
+    parsed_rule = parse_rule_module("indicator > open")
+
+    assert format_rule_module(parsed_rule) == "indicator > open"
+    assert list(evaluate_rule_module(dataframe, parsed_rule, "EMA_2_months")) == [1, 0]
+
+
+def test_prepare_and_output_helpers_are_available_from_split_modules() -> None:
+    from finance_cli.analysis_output import ordered_output_columns as ordered_output_columns_module
+    from finance_cli.analysis_prepare import prepare_dataframe as prepare_dataframe_module
+
+    dataframe = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01"],
+            "open": [10, 11],
+        }
+    )
+
+    prepared = prepare_dataframe_module(dataframe, months=1)
+
+    assert list(prepared["open"]) == [10, 11]
+    assert ordered_output_columns_module(prepared) == ["date", "open"]
+
+
 def test_analyze_dataframe_and_render_output() -> None:
     dataframe = pd.DataFrame(
         {

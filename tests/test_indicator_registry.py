@@ -11,6 +11,15 @@ from finance_cli.errors import AnalysisError
 class TestIndicatorRegistryProperties:
     """Property-based tests for indicator registration validation."""
 
+    def test_indicator_registry_is_available_from_indicator_module(self) -> None:
+        from finance_cli.analysis_indicators import IndicatorRegistry as IndicatorRegistryModule
+        from finance_cli.analysis_indicators import get_indicator_registry as get_registry_module
+
+        registry = IndicatorRegistryModule()
+
+        assert isinstance(registry, IndicatorRegistry)
+        assert get_registry_module().list_indicators() == get_indicator_registry().list_indicators()
+
     @given(
         data_length=st.integers(min_value=1, max_value=100),
         window=st.integers(min_value=1, max_value=50),

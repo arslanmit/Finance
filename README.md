@@ -309,12 +309,20 @@ By default the app writes:
 output/<input_stem>_processed.csv
 ```
 
+Matrix runs write to a timestamped directory under:
+
+```text
+output/matrix/<timestamp>/
+```
+
 Examples:
 
 - `data/generated/500_pa.csv` -> `output/500_pa_processed.csv`
 - `data/generated/spy.csv` -> `output/spy_processed.csv`
 
 You can override the output path with `--output`, but the file must still end in `.csv`.
+
+The `output/` directory is treated as generated local output and is ignored by git for new files.
 
 ### Terminal Output
 
@@ -381,7 +389,7 @@ Useful paths:
 - entrypoint: `dynamic_range_average.py`
 - CLI implementation: `finance_cli/`
 - generated datasets: `data/generated/`
-- processed outputs: `output/`
+- processed outputs and matrix manifests: `output/`
 - refresh backups: `tmp/refresh_backups/`
 
 Run tests:
