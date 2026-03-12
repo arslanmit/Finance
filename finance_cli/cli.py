@@ -26,6 +26,12 @@ from .catalog import discover_datasets, get_dataset, import_dataset, remove_data
 from .create import create_symbol_dataset
 from .errors import FinanceCliError
 from .models import AnalysisConfig, DatasetConfig, RefreshSummary, ResolvedSource
+from .presentation import (
+    print_dataset_list,
+    print_dataset_refresh_summary,
+    print_refresh_summary,
+    sort_datasets_for_display,
+)
 from .refresh import refresh_selected_source
 from .sources import ensure_symbol_column, load_dataframe, resolve_custom_source, resolve_dataset_source
 
@@ -511,16 +517,6 @@ def dataset_menu_label(dataset: DatasetConfig) -> str:
     return f"{dataset.id}{refresh_tag}"
 
 
-def sort_datasets_for_display(datasets: list[DatasetConfig]) -> list[DatasetConfig]:
-    return sorted(
-        datasets,
-        key=lambda dataset: (
-            dataset.file_name.lower(),
-            dataset.id.lower(),
-        ),
-    )
-
-
 def select_wizard_menu_item(
     item: WizardMenuItem,
 ) -> WizardSourceChoice:
@@ -676,30 +672,3 @@ def refresh_generated_datasets(
         summary = refresh_selected_source(resolve_dataset_source(dataset))
         refreshed.append((dataset, summary))
     return refreshed
-
-
-def print_refresh_summary(summary: RefreshSummary) -> None:
-    print(
-        "Refresh summary: "
-        f"symbol={summary.symbol}, "
-        f"range={summary.min_date}..{summary.max_date}, "
-        f"rows={summary.row_count}, "
-        f"backup={summary.backup_path}"
-    )
-
-
-def print_dataset_refresh_summary(dataset: DatasetConfig, summary: RefreshSummary) -> None:
-    print(
-        f"Refreshed dataset '{dataset.id}': "
-        f"symbol={summary.symbol}, "
-        f"range={summary.min_date}..{summary.max_date}, "
-        f"rows={summary.row_count}, "
-        f"backup={summary.backup_path}"
-    )
-
-
-def print_dataset_list(datasets: list[DatasetConfig]) -> None:
-    print("Available datasets:\n")
-    for dataset in sort_datasets_for_display(datasets):
-        refresh_text = "yes" if dataset.supports_refresh else "no"
-        print(f"- {dataset.id} | file: {dataset.file_name} | refresh: {refresh_text}")
