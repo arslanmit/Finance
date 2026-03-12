@@ -17,6 +17,7 @@ from .analysis_indicators import (
     get_indicator_registry,
     validate_indicator_result,
 )
+from .analysis_rules import evaluate_rule, format_rule, parse_rule
 from .errors import AnalysisError
 from .models import AnalysisConfig, ParsedRule
 from .sources import ensure_supported_file_suffix, ensure_symbol_column
@@ -33,100 +34,6 @@ LEADING_OUTPUT_COLUMNS = [
 ]
 TRAILING_DERIVED_COLUMNS = ["moving_average_window_months", "condition", SCREENING_RULE_COLUMN]
 INDICATOR_COLUMN_PATTERN = re.compile(r"^[A-Z]+_\d+_months$")
-
-
-def parse_rule(rule_str: str) -> ParsedRule:
-    """Parse a rule string into components.
-
-    Expected format: "left_operand operator right_operand"
-    Examples: "indicator > open", "indicator <= close"
-
-    Args:
-        rule_str: Rule string to parse
-
-    Returns:
-        ParsedRule instance with parsed components
-
-    Raises:
-        AnalysisError: If rule format is invalid
-    """
-    parts = rule_str.strip().split()
-    if len(parts) != 3:
-        raise AnalysisError(
-            f"Invalid rule format: '{rule_str}'. "
-            "Expected format: 'left_operand operator right_operand' "
-            "(e.g., 'indicator > open')"
-        )
-
-    return ParsedRule(
-        left_operand=parts[0],
-        operator=parts[1],
-        right_operand=parts[2]
-    )
-
-
-def format_rule(rule: ParsedRule) -> str:
-    """Return a normalized string representation of a parsed rule."""
-    return f"{rule.left_operand} {rule.operator} {rule.right_operand}"
-
-
-def _resolve_rule_operand(operand: str, indicator_column: str) -> str:
-    if operand.lower() == "indicator":
-        return indicator_column
-    return operand
-
-
-def evaluate_rule(
-    dataframe: pd.DataFrame,
-    rule: ParsedRule,
-    indicator_column: str
-) -> pd.Series:
-    """Evaluate a screening rule and return binary flags.
-
-    Returns a Series of 1 (condition met) or 0 (condition not met).
-    NaN values result in 0.
-
-    Args:
-        dataframe: DataFrame containing the data to evaluate
-        rule: Parsed rule with left_operand, operator, right_operand
-        indicator_column: Name of the indicator column in the dataframe
-
-    Returns:
-        Series of binary flags (1 for true, 0 for false)
-
-    Raises:
-        AnalysisError: If rule operands reference non-existent columns
-    """
-    # Resolve operands to column names
-    left_col = _resolve_rule_operand(rule.left_operand, indicator_column)
-    right_col = _resolve_rule_operand(rule.right_operand, indicator_column)
-
-    # Validate columns exist
-    for col_name, operand in [(left_col, rule.left_operand), (right_col, rule.right_operand)]:
-        if col_name not in dataframe.columns:
-            available = ", ".join(sorted(dataframe.columns))
-            raise AnalysisError(
-                f"Rule operand '{operand}' references non-existent column '{col_name}'. "
-                f"Available columns: {available}"
-            )
-
-    left = dataframe[left_col]
-    right = dataframe[right_col]
-
-    # Apply comparison operator
-    if rule.operator == ">":
-        result = left > right
-    elif rule.operator == "<":
-        result = left < right
-    elif rule.operator == ">=":
-        result = left >= right
-    elif rule.operator == "<=":
-        result = left <= right
-    else:
-        raise AnalysisError(f"Unsupported operator: {rule.operator}")
-
-    # Convert to binary flags, treating NaN as False (0)
-    return result.fillna(False).astype(int)
 
 
 def prepare_dataframe(dataframe: pd.DataFrame, months: int) -> pd.DataFrame:
