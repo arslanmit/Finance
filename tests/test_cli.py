@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -48,6 +49,32 @@ def monthly_frame(row_count: int = 3) -> pd.DataFrame:
     dataframe = build_price_dataframe(row_count)
     dataframe["date"] = pd.to_datetime(dataframe["date"])
     return dataframe
+
+
+def test_main_without_args_runs_wizard(monkeypatch) -> None:
+    called = {"wizard": False}
+
+    def fake_run_wizard() -> None:
+        called["wizard"] = True
+
+    monkeypatch.setattr("finance_cli.cli.run_wizard", fake_run_wizard)
+
+    assert main([]) == 0
+    assert called["wizard"] is True
+
+
+def test_main_returns_parser_exit_code_for_invalid_args(capsys) -> None:
+    assert main(["run"]) == 2
+    assert "usage:" in capsys.readouterr().err
+
+
+def test_dispatch_command_routes_run_command(monkeypatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr("finance_cli.cli.handle_run_command", lambda args: calls.append("run"))
+
+    assert dispatch_command(argparse.Namespace(command="run")) == 0
+    assert calls == ["run"]
 
 
 def test_datasets_list_command_uses_generated_discovery_only(tmp_path: Path, monkeypatch, capsys) -> None:

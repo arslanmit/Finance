@@ -158,14 +158,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args_list = list(sys.argv[1:] if argv is None else argv)
+    parser = build_parser()
 
     try:
         if not args_list:
             run_wizard()
             return 0
 
-        parser = build_parser()
-        args = parser.parse_args(args_list)
+        try:
+            args = parser.parse_args(args_list)
+        except SystemExit as exc:
+            return exc.code if isinstance(exc.code, int) else 1
         return dispatch_command(args)
     except FinanceCliError as exc:
         print(f"Error: {exc}", file=sys.stderr)

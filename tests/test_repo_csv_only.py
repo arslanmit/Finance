@@ -14,6 +14,16 @@ def test_repo_has_no_excel_files() -> None:
     assert excel_files == []
 
 
+def test_repo_has_no_os_junk_files() -> None:
+    junk_files = [
+        path.relative_to(ROOT).as_posix()
+        for path in ROOT.rglob("*")
+        if path.is_file() and path.name == ".DS_Store"
+    ]
+
+    assert junk_files == []
+
+
 def test_repo_has_no_registry_artifacts_or_excel_dependencies() -> None:
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     searchable_files = [
