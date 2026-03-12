@@ -190,6 +190,36 @@ def test_refresh_generated_datasets_returns_only_refreshable_matches() -> None:
     assert refreshed == [(refreshable, mock_refresh.return_value)]
 
 
+def test_matrix_helpers_are_available_from_matrix_module(tmp_path: Path) -> None:
+    from finance_cli.matrix import build_matrix_jobs, build_matrix_output_path
+
+    jobs = build_matrix_jobs()
+    output_path = build_matrix_output_path(tmp_path, "nvda", jobs[0])
+
+    assert len(jobs) == 240
+    assert output_path.parent == tmp_path / "nvda"
+    assert output_path.name.startswith("nvda__m")
+
+
+def test_wizard_helpers_are_available_from_wizard_module() -> None:
+    from finance_cli.wizard import build_wizard_menu_items
+
+    datasets = [
+        DatasetConfig(
+            id="nvda",
+            label="nvda",
+            path="data/generated/nvda.csv",
+            refresh=RefreshMetadata(provider="yahoo", symbol="NVDA"),
+            base_dir=Path("/tmp"),
+        )
+    ]
+
+    menu_items = build_wizard_menu_items(datasets)
+
+    assert [item.alias for item in menu_items[:2]] == ["create", "custom"]
+    assert menu_items[2].alias == "nvda"
+
+
 def test_datasets_list_command_uses_generated_discovery_only(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     write_csv(tmp_path / "data" / "generated" / "500_pa.csv", symbol="500.PA")
@@ -730,7 +760,7 @@ def test_matrix_command_records_analysis_failure_and_continues(
             raise AnalysisError("forced matrix analysis failure")
         return real_analyze_dataframe_with_config(dataframe, config)
 
-    monkeypatch.setattr("finance_cli.cli.analyze_dataframe_with_config", fake_analyze)
+    monkeypatch.setattr("finance_cli.matrix.analyze_dataframe_with_config", fake_analyze)
 
     code = main(["matrix", "--output-dir", str(output_dir)])
 
