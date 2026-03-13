@@ -8,9 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from .analysis import analyze_dataframe_with_config, get_indicator_registry, parse_rule, prepare_dataframe, save_dataframe
+from .analysis import get_indicator_registry, parse_rule
 from .models import AnalysisConfig, DatasetConfig
-from .sources import ensure_symbol_column, load_dataframe, resolve_dataset_source
 
 MATRIX_MONTHS = (1, 3, 6, 12, 24)
 MATRIX_RULE_OPERATORS = (">", "<", ">=", "<=")
@@ -110,93 +109,9 @@ def run_matrix_jobs(
     jobs: list[MatrixJob],
     output_dir: Path,
 ) -> list[MatrixRunRecord]:
-    records: list[MatrixRunRecord] = []
-    jobs_by_month = {
-        months: [job for job in jobs if job.months == months]
-        for months in MATRIX_MONTHS
-    }
+    from .matrix_runner import run_matrix_jobs as run_matrix_jobs_impl
 
-    for index, dataset in enumerate(datasets, start=1):
-        print(f"[{index}/{len(datasets)}] Running dataset '{dataset.id}'")
-        source = resolve_dataset_source(dataset)
-        input_path = source.input_path
-        try:
-            raw_dataframe = load_dataframe(input_path)
-            raw_dataframe = ensure_symbol_column(raw_dataframe, dataset.symbol)
-        except Exception as exc:
-            for job in jobs:
-                output_path = build_matrix_output_path(output_dir, dataset.id, job)
-                records.append(
-                    build_matrix_record(
-                        dataset=dataset,
-                        input_path=input_path,
-                        job=job,
-                        output_path=output_path,
-                        status="error",
-                        row_count=None,
-                        condition_true_count=None,
-                        error=str(exc),
-                    )
-                )
-            continue
-
-        for months in MATRIX_MONTHS:
-            month_jobs = jobs_by_month[months]
-            try:
-                prepared_dataframe = prepare_dataframe(raw_dataframe, months)
-            except Exception as exc:
-                for job in month_jobs:
-                    output_path = build_matrix_output_path(output_dir, dataset.id, job)
-                    records.append(
-                        build_matrix_record(
-                            dataset=dataset,
-                            input_path=input_path,
-                            job=job,
-                            output_path=output_path,
-                            status="error",
-                            row_count=None,
-                            condition_true_count=None,
-                            error=str(exc),
-                        )
-                    )
-                continue
-
-            for job in month_jobs:
-                output_path = build_matrix_output_path(output_dir, dataset.id, job)
-                config = AnalysisConfig(
-                    months=job.months,
-                    indicator_type=job.indicator,
-                    rule=job.rule,
-                )
-                try:
-                    analyzed_dataframe = analyze_dataframe_with_config(prepared_dataframe, config)
-                    save_dataframe(analyzed_dataframe, output_path)
-                    records.append(
-                        build_matrix_record(
-                            dataset=dataset,
-                            input_path=input_path,
-                            job=job,
-                            output_path=output_path,
-                            status="success",
-                            row_count=len(analyzed_dataframe),
-                            condition_true_count=int(analyzed_dataframe["condition"].sum()),
-                        )
-                    )
-                except Exception as exc:
-                    records.append(
-                        build_matrix_record(
-                            dataset=dataset,
-                            input_path=input_path,
-                            job=job,
-                            output_path=output_path,
-                            status="error",
-                            row_count=None,
-                            condition_true_count=None,
-                            error=str(exc),
-                        )
-                    )
-
-    return records
+    return run_matrix_jobs_impl(datasets, jobs, output_dir)
 
 
 def write_matrix_manifest(records: list[MatrixRunRecord], output_dir: Path) -> Path:
@@ -204,3 +119,19 @@ def write_matrix_manifest(records: list[MatrixRunRecord], output_dir: Path) -> P
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame([asdict(record) for record in records]).to_csv(manifest_path, index=False)
     return manifest_path
+
+
+__all__ = [
+    "MATRIX_MONTHS",
+    "MATRIX_RULE_COLUMNS",
+    "MATRIX_RULE_OPERATORS",
+    "MatrixJob",
+    "MatrixRunRecord",
+    "build_matrix_jobs",
+    "build_matrix_output_dir",
+    "build_matrix_output_path",
+    "build_matrix_record",
+    "run_matrix_jobs",
+    "slugify_rule",
+    "write_matrix_manifest",
+]

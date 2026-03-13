@@ -9,8 +9,9 @@ import pandas as pd
 
 from .catalog import GENERATED_DATA_DIR, discover_datasets, get_base_dir
 from .errors import CatalogError, CreationError
+from .managed_csv import write_managed_dataset_csv
 from .models import DatasetConfig, RefreshMetadata
-from .refresh import fetch_full_history_monthly_source
+from .refresh_yahoo import fetch_full_history_monthly_source
 
 SYMBOL_COLUMN = "symbol"
 EXPECTED_COLUMNS = ["date", "open", "high", "low", "close", "volume"]
@@ -90,7 +91,4 @@ def validate_created_dataframe(dataframe: pd.DataFrame, symbol: str) -> None:
 
 
 def write_created_csv(dataframe: pd.DataFrame, output_path: Path, symbol: str) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    descending = dataframe.sort_values("date", ascending=False).reset_index(drop=True)
-    descending.insert(0, SYMBOL_COLUMN, symbol)
-    descending.to_csv(output_path, index=False, date_format="%Y-%m-%d")
+    write_managed_dataset_csv(output_path, dataframe, symbol)
