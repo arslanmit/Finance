@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .analysis import build_default_output_path, format_rule, get_indicator_registry, parse_rule
+from .analysis import build_default_output_path
 from .catalog import discover_datasets
 from .create import create_symbol_dataset
 from .errors import FinanceCliError
@@ -13,6 +13,16 @@ from .models import AnalysisConfig, DatasetConfig, ResolvedSource
 from .presentation import sort_datasets_for_display
 from .run_workflow import execute_analysis
 from .sources import resolve_custom_source, resolve_dataset_source
+from .wizard_prompts import (
+    prompt_for_custom_source as prompt_for_custom_source_impl,
+    prompt_for_indicator as prompt_for_indicator_impl,
+    prompt_for_months as prompt_for_months_impl,
+    prompt_for_output_path as prompt_for_output_path_impl,
+    prompt_for_rule as prompt_for_rule_impl,
+    prompt_for_source as prompt_for_source_impl,
+    prompt_for_symbol_dataset as prompt_for_symbol_dataset_impl,
+    prompt_yes_no as prompt_yes_no_impl,
+)
 
 
 @dataclass(frozen=True)
@@ -54,27 +64,11 @@ def run_wizard() -> None:
 
 
 def prompt_for_source(datasets: list[DatasetConfig]) -> WizardSourceChoice:
-    print("Choose a dataset:\n")
-    menu_items = build_wizard_menu_items(datasets)
-
-    for index, item in enumerate(menu_items, start=1):
-        print(f"{index}. {item.label}")
-
-    while True:
-        response = input("\nEnter a dataset number or alias: ").strip()
-        if not response:
-            continue
-
-        if response.isdigit():
-            selection = int(response)
-            if 1 <= selection <= len(menu_items):
-                return select_wizard_menu_item(menu_items[selection - 1])
-
-        for item in menu_items:
-            if response.lower() == item.alias:
-                return select_wizard_menu_item(item)
-
-        print("Invalid selection. Choose a listed number, dataset alias, 'create', or 'custom'.")
+    return prompt_for_source_impl(
+        datasets,
+        build_menu_items=build_wizard_menu_items,
+        select_menu_item=select_wizard_menu_item,
+    )
 
 
 def build_wizard_menu_items(datasets: list[DatasetConfig]) -> list[WizardMenuItem]:
@@ -120,87 +114,53 @@ def select_wizard_menu_item(item: WizardMenuItem) -> WizardSourceChoice:
 
 
 def prompt_for_custom_source() -> WizardSourceChoice:
-    while True:
-        custom_path = input("Enter the CSV file path: ").strip()
-        if not custom_path:
-            print("Please enter a file path.")
-            continue
-
-        try:
-            return WizardSourceChoice(resolve_custom_source(custom_path))
-        except FinanceCliError as exc:
-            print(f"Error: {exc}")
+    return prompt_for_custom_source_impl(
+        resolve_custom_source=lambda custom_path: WizardSourceChoice(resolve_custom_source(custom_path))
+    )
 
 
 def prompt_for_symbol_dataset() -> WizardSourceChoice:
-    while True:
-        symbol = input("Enter the Yahoo Finance symbol (for example SPY, VOO, AAPL): ").strip()
-        if not symbol:
-            print("Please enter a symbol.")
-            continue
-
-        try:
-            dataset = create_symbol_dataset(symbol)
-            print(
-                f"Created dataset '{dataset.id}' from symbol {dataset.refresh.symbol} -> {dataset.path}"
-            )
-            return WizardSourceChoice(resolve_dataset_source(dataset), created_now=True)
-        except FinanceCliError as exc:
-            print(f"Error: {exc}")
+    return prompt_for_symbol_dataset_impl(
+        create_symbol_dataset=create_symbol_dataset,
+        resolve_dataset_source=lambda dataset: WizardSourceChoice(
+            resolve_dataset_source(dataset), created_now=True
+        ),
+    )
 
 
 def prompt_for_months() -> int:
-    while True:
-        response = input("Enter the indicator window (examples: 3, 6, 12): ").strip()
-        try:
-            return int(response)
-        except ValueError:
-            print("Please enter a whole number, for example 3, 6, or 12.")
+    return prompt_for_months_impl()
 
 
 def prompt_for_indicator() -> str:
-    available = get_indicator_registry().list_indicators()
-    default_indicator = "sma"
-    while True:
-        response = input(
-            f"Enter the indicator [{default_indicator}] (available: {', '.join(available)}): "
-        ).strip()
-        indicator = default_indicator if not response else response.lower()
-        if indicator in available:
-            return indicator
-        print(f"Please choose one of: {', '.join(available)}.")
+    return prompt_for_indicator_impl()
 
 
 def prompt_for_rule() -> str:
-    default_rule = "indicator > open"
-    while True:
-        response = input(
-            f"Enter the screening rule [{default_rule}] (example: indicator > close): "
-        ).strip()
-        candidate = default_rule if not response else response
-        try:
-            return format_rule(parse_rule(candidate))
-        except FinanceCliError as exc:
-            print(f"Error: {exc}")
+    return prompt_for_rule_impl()
 
 
 def prompt_for_output_path(default_output: Path) -> Path:
-    response = input(
-        f"Output path [{default_output}] (press Enter to accept): "
-    ).strip()
-    if not response:
-        return default_output
-    return Path(response).expanduser()
+    return prompt_for_output_path_impl(default_output)
 
 
 def prompt_yes_no(prompt: str, default: bool = False) -> bool:
-    suffix = " [Y/n]: " if default else " [y/N]: "
-    while True:
-        response = input(f"{prompt}{suffix}").strip().lower()
-        if not response:
-            return default
-        if response in {"y", "yes"}:
-            return True
-        if response in {"n", "no"}:
-            return False
-        print("Please answer with 'y' or 'n'.")
+    return prompt_yes_no_impl(prompt, default=default)
+
+
+__all__ = [
+    "WizardMenuItem",
+    "WizardSourceChoice",
+    "build_wizard_menu_items",
+    "dataset_menu_label",
+    "prompt_for_custom_source",
+    "prompt_for_indicator",
+    "prompt_for_months",
+    "prompt_for_output_path",
+    "prompt_for_rule",
+    "prompt_for_source",
+    "prompt_for_symbol_dataset",
+    "prompt_yes_no",
+    "run_wizard",
+    "select_wizard_menu_item",
+]
