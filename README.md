@@ -1,64 +1,38 @@
 # Finance CLI
 
+`Python CLI` `CSV-first` `Monthly screening` `Yahoo-backed datasets` `Matrix sweeps`
+
 Finance CLI is a CSV-first command-line tool for screening monthly ETF, stock, and similar market datasets with configurable indicators and rule-based signals.
 
 It is built for four practical jobs:
 
-- 🚀 run analysis on a named dataset discovered from `data/generated`
-- 🧾 run the same analysis on your own CSV file
-- 🔄 create and refresh symbol-backed monthly datasets from Yahoo Finance
-- 🧪 sweep a fixed matrix of indicator, rule, and month combinations across all generated datasets
+| Job | What it gives you |
+| --- | --- |
+| Analyze a named dataset | Run repeatable analysis against CSVs discovered from `data/generated/` |
+| Analyze your own CSV | Run the same logic on any file path without importing it |
+| Create and refresh live datasets | Pull monthly OHLCV history from Yahoo Finance and keep it refreshable |
+| Sweep the full matrix | Run a fixed grid of indicators, rules, and month windows across all generated datasets |
 
-> Best fit: fast monthly screening, repeatable CSV workflows, and transparent output you can inspect or extend.
+> [!TIP]
+> First run? Open the guided wizard with `python3 dynamic_range_average.py`.
 
-## Table of Contents
+> [!IMPORTANT]
+> This project is a screening and inspection tool. It is not a backtester, portfolio optimizer, or complete trading system.
 
-- [At a Glance](#at-a-glance)
-- [Install](#install)
-- [Quick Start](#quick-start)
+## Quick Links
+
+- [Start Here](#start-here)
+- [Workflow Map](#workflow-map)
 - [Common Workflows](#common-workflows)
 - [Command Cookbook](#command-cookbook)
-- [Outputs and File Locations](#outputs-and-file-locations)
-- [Financial Logic and Interpretation](#financial-logic-and-interpretation)
+- [Files and Outputs](#files-and-outputs)
+- [Signal Logic](#signal-logic)
 - [Limits and Caveats](#limits-and-caveats)
-- [References](#references)
 - [Contributor Notes](#contributor-notes)
 
-## At a Glance
+## Start Here
 
-### What You Can Do
-
-- 📦 analyze a generated dataset by dataset id
-- 📁 analyze a custom CSV file without importing it
-- 📈 create a monthly Yahoo-backed dataset and make it discoverable immediately
-- ♻️ refresh one generated dataset or every refreshable dataset
-- 🧮 run a fixed matrix over every generated dataset and collect a manifest of results
-
-### Workflow Cheat Sheet
-
-| Goal | Command | Result |
-| --- | --- | --- |
-| Open the guided wizard | `python3 dynamic_range_average.py` | Interactive flow for creating, picking, or running a dataset |
-| Analyze a generated dataset | `python3 dynamic_range_average.py run --dataset spy --months 6` | Writes `output/spy_processed.csv` |
-| Analyze a custom CSV | `python3 dynamic_range_average.py run --file path/to/custom.csv --months 12` | Writes `output/custom_processed.csv` by default |
-| Create a Yahoo-backed dataset | `python3 dynamic_range_average.py datasets create --symbol SPY` | Writes `data/generated/spy.csv` |
-| Refresh a generated dataset | `python3 dynamic_range_average.py datasets refresh --id spy` | Updates the dataset and writes a backup |
-| Run the full matrix | `python3 dynamic_range_average.py matrix` | Writes matrix CSVs plus `manifest.csv` under `output/matrix/<timestamp>/` |
-
-### What This Tool Is
-
-- a lightweight monthly screening and inspection tool
-- a configurable indicator + rule engine for CSV workflows
-- a simple trend-following or time-series-momentum style screen
-
-### What This Tool Is Not
-
-- a full trading system
-- a backtesting engine
-- a portfolio optimizer
-- a fundamental valuation model
-
-## Install
+### Install
 
 Install the Python dependencies:
 
@@ -72,9 +46,7 @@ If your system Python is externally managed and the command above fails:
 python3 -m pip install --user --break-system-packages -r requirements.txt
 ```
 
-## Quick Start
-
-### Fastest Path
+### 60-Second Start
 
 Open the guided wizard:
 
@@ -82,53 +54,50 @@ Open the guided wizard:
 python3 dynamic_range_average.py
 ```
 
-The wizard can:
-
-- create a new dataset from a Yahoo Finance symbol
-- run a custom CSV file
-- choose an existing generated dataset from `data/generated`
-
-### Direct Examples
-
-Run a generated dataset:
+Or go straight to the CLI:
 
 ```bash
-python3 dynamic_range_average.py run --dataset 500_pa --months 6
-```
-
-Run with a different indicator and rule:
-
-```bash
-python3 dynamic_range_average.py run --dataset spy --months 6 --indicator ema --rule "indicator > close"
-```
-
-Run your own CSV file:
-
-```bash
-python3 dynamic_range_average.py run --file path/to/custom.csv --months 12
-```
-
-Refresh a generated symbol-backed dataset before analysis:
-
-```bash
-python3 dynamic_range_average.py run --dataset nvda --months 6 --refresh
-```
-
-Run the matrix workflow:
-
-```bash
+python3 dynamic_range_average.py datasets list
+python3 dynamic_range_average.py run --dataset spy --months 6
 python3 dynamic_range_average.py matrix
+```
+
+### Choose Your Entry Point
+
+| If you want to... | Run this | Result |
+| --- | --- | --- |
+| Use the guided flow | `python3 dynamic_range_average.py` | Interactive wizard for creating, picking, or running datasets |
+| Analyze a generated dataset | `python3 dynamic_range_average.py run --dataset spy --months 6` | Writes `output/spy_processed.csv` |
+| Analyze a custom CSV | `python3 dynamic_range_average.py run --file path/to/custom.csv --months 12` | Writes `output/custom_processed.csv` by default |
+| Create a Yahoo-backed dataset | `python3 dynamic_range_average.py datasets create --symbol SPY` | Writes `data/generated/spy.csv` |
+| Refresh a generated dataset | `python3 dynamic_range_average.py datasets refresh --id spy` | Updates the dataset and writes a backup |
+| Sweep every generated dataset | `python3 dynamic_range_average.py matrix` | Writes timestamped matrix output plus `manifest.csv` |
+
+## Workflow Map
+
+```mermaid
+flowchart LR
+    A["Start"] --> B{"What do you have?"}
+    B -->|"A dataset id"| C["run --dataset [id] --months 6"]
+    B -->|"A CSV file"| D["run --file path/to/file.csv --months 12"]
+    B -->|"A Yahoo symbol"| E["datasets create --symbol SPY"]
+    E --> F["data/generated/spy.csv"]
+    F --> C
+    B -->|"Sweep everything"| G["matrix"]
+    C --> H["output/[stem]_processed.csv"]
+    D --> H
+    G --> I["output/matrix/[timestamp]/manifest.csv"]
 ```
 
 ## Common Workflows
 
 ### 1. Analyze a Generated Dataset
 
-**What it does:** runs indicator analysis against a named CSV discovered from `data/generated`.
+| Best when | Core command | Default result |
+| --- | --- | --- |
+| You want a repeatable dataset id and predictable output file | `python3 dynamic_range_average.py run --dataset spy --months 6` | `output/spy_processed.csv` |
 
-**When to use it:** you want a repeatable dataset id and a predictable output file.
-
-List available generated datasets:
+List available datasets:
 
 ```bash
 python3 dynamic_range_average.py datasets list
@@ -154,9 +123,9 @@ python3 dynamic_range_average.py run --dataset aapl --months 6 --refresh
 
 ### 2. Analyze Your Own CSV
 
-**What it does:** runs the same analysis against any CSV path without importing it into generated storage.
-
-**When to use it:** you want a one-off run on an external or internal research export.
+| Best when | Core command | Notes |
+| --- | --- | --- |
+| You want a one-off run on a file without importing it | `python3 dynamic_range_average.py run --file path/to/custom.csv --months 12` | The input file is not copied into `data/generated/` |
 
 Run a custom file:
 
@@ -170,7 +139,7 @@ Write to a custom output path:
 python3 dynamic_range_average.py run --file path/to/custom.csv --months 12 --output output/my_custom_screen.csv
 ```
 
-Your file must contain at least:
+Required columns:
 
 - `date`
 - `open`
@@ -179,9 +148,9 @@ Extra columns are allowed and remain in the processed output.
 
 ### 3. Create a Yahoo-Backed Dataset
 
-**What it does:** downloads the full available monthly OHLCV history for a Yahoo Finance symbol and stores it as a generated dataset.
-
-**When to use it:** you want a named dataset that can later be refreshed with live data.
+| Best when | Core command | What happens |
+| --- | --- | --- |
+| You want a named dataset that can later be refreshed with live data | `python3 dynamic_range_average.py datasets create --symbol SPY` | Downloads monthly Yahoo Finance history into `data/generated/` |
 
 Create a dataset:
 
@@ -195,23 +164,18 @@ Another example:
 python3 dynamic_range_average.py datasets create --symbol 500.PA
 ```
 
-What happens next:
-
-- the tool writes `data/generated/<symbol_slug>.csv`
-- the file becomes discoverable immediately
-- the first `symbol` column stores the original Yahoo symbol
-- future refresh commands can update the dataset in place
-
-Examples:
+Resulting ids:
 
 - `SPY` -> `data/generated/spy.csv`
 - `500.PA` -> `data/generated/500_pa.csv`
 
+The first `symbol` column stores the original Yahoo symbol, which is what later enables refresh.
+
 ### 4. Add or Remove a Generated Dataset
 
-**What it does:** imports or removes generated datasets without using the Yahoo downloader.
-
-**When to use it:** you already have a CSV and want it to behave like a named dataset.
+| Best when | Core command | Notes |
+| --- | --- | --- |
+| You already have a CSV and want it to behave like a named dataset | `python3 dynamic_range_average.py datasets add --path path/to/custom.csv` | Uses the source filename as the dataset id |
 
 Copy an existing CSV into generated storage:
 
@@ -233,9 +197,9 @@ python3 dynamic_range_average.py datasets remove --id spy
 
 ### 5. Refresh Generated Data
 
-**What it does:** updates generated symbol-backed datasets from Yahoo Finance.
-
-**When to use it:** you want the latest available monthly data before screening.
+| Best when | Core command | Notes |
+| --- | --- | --- |
+| You want the latest available monthly data before screening | `python3 dynamic_range_average.py datasets refresh --id spy` | Works only for datasets with a non-empty `symbol` column |
 
 Refresh one dataset:
 
@@ -249,8 +213,6 @@ Refresh every refreshable dataset:
 python3 dynamic_range_average.py datasets refresh --all
 ```
 
-Refresh works only for generated datasets with a non-empty `symbol` column.
-
 Backups are written to:
 
 ```text
@@ -259,11 +221,11 @@ tmp/refresh_backups/<input_stem>.backup.<timestamp>.csv
 
 ### 6. Run the Matrix Workflow
 
-**What it does:** runs a fixed grid of month windows, indicators, and screening rules across every generated dataset.
+| Best when | Core command | Output |
+| --- | --- | --- |
+| You want a broad sweep instead of a single hand-picked run | `python3 dynamic_range_average.py matrix` | Per-dataset CSVs plus `manifest.csv` under a timestamped directory |
 
-**When to use it:** you want a broad sweep instead of a single hand-picked run.
-
-Run with the default timestamped output directory:
+Run with the default output directory:
 
 ```bash
 python3 dynamic_range_average.py matrix
@@ -304,15 +266,12 @@ Use this section when you want the shortest path from task to command.
 | Refresh all refreshable datasets | `python3 dynamic_range_average.py datasets refresh --all` | Skips non-refreshable generated datasets |
 | Run the full matrix | `python3 dynamic_range_average.py matrix` | Writes outputs under `output/matrix/<timestamp>/` |
 
-## Outputs and File Locations
+## Files and Outputs
 
-### Generated Datasets and Dataset IDs
+> [!NOTE]
+> Generated datasets are discovered only from `data/generated/*.csv`. Files outside that directory are never auto-discovered, but they still work with `run --file`.
 
-Generated datasets are discovered only from:
-
-```text
-data/generated/*.csv
-```
+### Dataset IDs
 
 Dataset ids come directly from filenames:
 
@@ -320,9 +279,7 @@ Dataset ids come directly from filenames:
 - `data/generated/nvda.csv` -> `nvda`
 - `data/generated/spy.csv` -> `spy`
 
-Files outside `data/generated` are never auto-discovered, but they still work with `run --file`.
-
-### Default Output Paths
+### File Map
 
 | Location | Purpose |
 | --- | --- |
@@ -339,9 +296,10 @@ Single-run examples:
 
 You can override a single-run output path with `--output`, but it must still end in `.csv`.
 
-The `output/` directory is treated as generated local output and is ignored by git for new files.
+> [!NOTE]
+> The `output/` directory is treated as generated local output and is ignored by git for new files.
 
-### Terminal Output
+### Terminal and CSV Output Shape
 
 The terminal output shows all analyzed rows, not only rows where `condition == 1`.
 
@@ -351,11 +309,7 @@ Output columns are ordered dynamically:
 - then remaining source columns in their original CSV order
 - then derived analysis columns such as the indicator column, `moving_average_window_months`, `condition`, and optional `screening_rule`
 
-### Processed CSV Output
-
-Processed CSV files follow the same dynamic ordering as the terminal output.
-
-That means the processed file preserves:
+Processed CSV files follow the same ordering as terminal output. That means they preserve:
 
 - original source columns
 - extra columns from custom CSV inputs
@@ -373,14 +327,14 @@ That means the processed file preserves:
 | `condition` | `1` when the rule is true, otherwise `0` |
 | `screening_rule` | Normalized rule string for non-default runs |
 
-## Financial Logic and Interpretation
+## Signal Logic
 
 This project is centered on a simple monthly market-screening idea:
 
-- load price history
-- calculate a selected indicator on monthly `open`
-- compute two gap ratios between the indicator and `open`
-- mark each row with a binary condition from a rule such as `indicator > open`
+1. Load price history.
+2. Calculate a selected indicator on monthly `open`.
+3. Compute two gap ratios between the indicator and `open`.
+4. Mark each row with a binary condition from a rule such as `indicator > open`.
 
 It is best understood as a lightweight trend-following or time-series-momentum style screen, not as a complete investment system.
 
@@ -432,12 +386,12 @@ python3 dynamic_range_average.py run --dataset aapl --months 6 --refresh
 
 ### How to Read the Signal
 
-| Signal | Practical Meaning |
+| Signal | Practical meaning |
 | --- | --- |
-| `condition = 1` | the configured rule evaluated to true for that row |
-| positive `moving_average_minus_open_over_open` | the current `open` is below the selected indicator |
-| positive `open_minus_moving_average_over_moving_average` | the current `open` is above the selected indicator |
-| larger positive values in the primary gap column | the current `open` is further below the selected indicator |
+| `condition = 1` | The configured rule evaluated to true for that row |
+| Positive `moving_average_minus_open_over_open` | The current `open` is below the selected indicator |
+| Positive `open_minus_moving_average_over_moving_average` | The current `open` is above the selected indicator |
+| Larger positive values in the primary gap column | The current `open` is further below the selected indicator |
 
 In practice, the screen is most naturally used to find rows where price is trading below its recent average level and then inspect the size of that gap.
 
