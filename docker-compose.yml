@@ -1,0 +1,22 @@
+services:
+  finance-api:
+    build:
+      context: .
+    image: finance-cli-api:local
+    ports:
+      - "${FINANCE_API_PORT:-8000}:8000"
+    environment:
+      FINANCE_CLI_BASE_DIR: /app
+      FINANCE_CLI_DB_PATH: /app/state/finance_api.db
+    volumes:
+      - "${GENERATED_DATA_DIR:-./data/generated}:/app/data/generated"
+      - "${OUTPUT_DIR:-./output}:/app/output"
+      - "${TMP_DIR:-./tmp}:/app/tmp"
+      - "${STATE_DIR:-./state}:/app/state"
+    command:
+      - uvicorn
+      - finance_cli.api_app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
