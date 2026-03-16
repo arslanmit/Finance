@@ -22,16 +22,27 @@ from .refresh_yahoo import (
 from .models import RefreshSummary, ResolvedSource
 
 
-def refresh_selected_source(source: ResolvedSource) -> RefreshSummary:
+def refresh_selected_source(
+    source: ResolvedSource,
+    backup_dir: Path | None = None,
+) -> RefreshSummary:
     validate_refreshable_source(source)
     dataset = source.dataset
     if dataset is None or dataset.refresh is None:
         raise RefreshError("Live refresh is not configured for the selected source.")
 
+    if backup_dir is None:
+        return refresh_yahoo_monthly_csv(
+            source.input_path,
+            symbol=dataset.refresh.symbol,
+            strict_validation=False,
+        )
+
     return refresh_yahoo_monthly_csv(
         source.input_path,
         symbol=dataset.refresh.symbol,
         strict_validation=False,
+        backup_dir=backup_dir,
     )
 
 
@@ -43,6 +54,7 @@ def refresh_yahoo_monthly_csv(
     data_path: Path,
     symbol: str = DEFAULT_SYMBOL,
     strict_validation: bool = True,
+    backup_dir: Path | None = None,
 ) -> RefreshSummary:
     if not data_path.exists():
         raise RefreshError(f"Refresh target does not exist: {data_path}")
@@ -52,7 +64,7 @@ def refresh_yahoo_monthly_csv(
     validate_source_contiguity(source)
     if strict_validation:
         validate_overlap(existing, source)
-    backup_path = create_backup(data_path)
+    backup_path = create_backup(data_path, backup_dir=backup_dir)
     write_managed_dataset_csv(data_path, source, symbol)
 
     return RefreshSummary(
@@ -67,11 +79,20 @@ def refresh_yahoo_monthly_csv(
 def refresh_generated_dataset(
     data_path: Path,
     symbol: str = DEFAULT_SYMBOL,
+    backup_dir: Path | None = None,
 ) -> RefreshSummary:
+    if backup_dir is None:
+        return refresh_yahoo_monthly_csv(
+            data_path,
+            symbol=symbol,
+            strict_validation=False,
+        )
+
     return refresh_yahoo_monthly_csv(
         data_path,
         symbol=symbol,
         strict_validation=False,
+        backup_dir=backup_dir,
     )
 
 

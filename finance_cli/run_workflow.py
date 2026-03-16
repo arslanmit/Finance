@@ -27,9 +27,10 @@ def execute_analysis(
     config: AnalysisConfig,
     output_path: Path,
     refresh_requested: bool,
+    backup_dir: Path | None = None,
 ) -> None:
     if refresh_requested:
-        summary = refresh_selected_source(source)
+        summary = refresh_selected_source(source, backup_dir=backup_dir)
         print_refresh_summary(summary)
 
     raw_dataframe = load_dataframe(source.input_path)

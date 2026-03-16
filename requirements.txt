@@ -1,3 +1,4 @@
 pandas
 pytest
 hypothesis
+fastapi[standard]==0.135.1

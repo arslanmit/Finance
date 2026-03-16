@@ -20,11 +20,11 @@ def load_existing_csv_data(data_path: Path) -> pd.DataFrame:
     return dataframe
 
 
-def create_backup(data_path: Path) -> Path:
-    backup_dir = Path("tmp/refresh_backups")
-    backup_dir.mkdir(parents=True, exist_ok=True)
+def create_backup(data_path: Path, backup_dir: Path | None = None) -> Path:
+    effective_backup_dir = Path("tmp/refresh_backups") if backup_dir is None else Path(backup_dir)
+    effective_backup_dir.mkdir(parents=True, exist_ok=True)
     backup_name = f"{data_path.stem}.backup.{time.strftime('%Y%m%d-%H%M%S')}.csv"
-    backup_path = backup_dir / backup_name
+    backup_path = effective_backup_dir / backup_name
     shutil.copy2(data_path, backup_path)
     return backup_path
 

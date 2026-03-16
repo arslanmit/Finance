@@ -22,6 +22,7 @@ It is built for four practical jobs:
 ## Quick Links
 
 - [Start Here](#start-here)
+- [Docker and API](#docker-and-api)
 - [Workflow Map](#workflow-map)
 - [Common Workflows](#common-workflows)
 - [Command Cookbook](#command-cookbook)
@@ -60,6 +61,102 @@ Or go straight to the CLI:
 python3 dynamic_range_average.py datasets list
 python3 dynamic_range_average.py run --dataset spy --months 6
 python3 dynamic_range_average.py matrix
+```
+
+### API Quick Start
+
+Run the FastAPI product locally:
+
+```bash
+uvicorn finance_cli.api_app:app --reload
+```
+
+Core endpoints:
+
+- `GET /healthz`
+- `GET /datasets`
+- `POST /datasets/upload`
+- `POST /datasets/create-from-symbol`
+- `POST /datasets/{dataset_id}/refresh`
+- `DELETE /datasets/{dataset_id}`
+- `POST /runs`
+- `GET /runs/{run_id}`
+- `GET /runs/{run_id}/artifact`
+- `POST /jobs/matrix`
+- `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/artifact`
+
+Default API state:
+
+- SQLite state DB: `state/finance_api.db`
+- Managed datasets: `data/generated/`
+- Analysis artifacts: `output/`
+- Refresh backups and uploads: `tmp/`
+
+## Docker and API
+
+### Start the API with Docker
+
+Build and start the API:
+
+```bash
+docker compose up --build
+```
+
+The API will be available at:
+
+```text
+http://127.0.0.1:8000
+```
+
+Mounted persistent paths:
+
+- `data/generated/` -> managed datasets
+- `output/` -> run outputs and matrix artifacts
+- `tmp/` -> refresh backups and upload staging
+- `state/` -> SQLite metadata database
+
+Override ports or mount locations with environment variables:
+
+```bash
+FINANCE_API_PORT=18080 \
+GENERATED_DATA_DIR="$PWD/data/generated" \
+OUTPUT_DIR="$PWD/output" \
+TMP_DIR="$PWD/tmp" \
+STATE_DIR="$PWD/state" \
+docker compose up --build
+```
+
+### Run CLI commands from the same image
+
+Use the shared image for one-off CLI execution:
+
+```bash
+docker compose run --rm finance-api python dynamic_range_average.py datasets list
+docker compose run --rm finance-api python dynamic_range_average.py run --dataset spy --months 6
+```
+
+### Minimal API workflow
+
+Upload a CSV dataset:
+
+```bash
+curl -X POST http://127.0.0.1:8000/datasets/upload \
+  -F "file=@spy.csv"
+```
+
+Run a synchronous dataset analysis:
+
+```bash
+curl -X POST http://127.0.0.1:8000/runs \
+  -H "Content-Type: application/json" \
+  -d '{"dataset_id":"spy","months":6}'
+```
+
+Trigger an asynchronous matrix job:
+
+```bash
+curl -X POST http://127.0.0.1:8000/jobs/matrix
 ```
 
 ### Choose Your Entry Point
