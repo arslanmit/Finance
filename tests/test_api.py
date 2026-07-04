@@ -255,3 +255,103 @@ def test_matrix_job_writes_manifest_and_serves_artifact(
         "SELECT kind FROM artifacts WHERE owner_type = 'job' AND owner_id = ?",
         (payload["id"],),
     ) == "matrix_manifest"
+
+
+def test_app_startup_recovers_queued_jobs_and_marks_running_jobs_interrupted(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from finance_cli.api_app import ApiSettings, create_app
+    from finance_cli.api.storage import SqliteStateStore
+
+    settings = ApiSettings(
+        base_dir=tmp_path,
+        database_path=tmp_path / "state" / "finance_api.db",
+    )
+    write_dataset(settings.base_dir, "spy", symbol="SPY")
+    storage = SqliteStateStore(settings.database_path)
+    storage.initialize()
+    storage.create_job(
+        job_id="queued-matrix",
+        job_type="matrix",
+        dataset_id=None,
+        status="queued",
+        output_path="output/matrix/queued-matrix/manifest.csv",
+    )
+    storage.create_job(
+        job_id="running-refresh",
+        job_type="refresh",
+        dataset_id="spy",
+        status="running",
+        output_path="data/generated/spy.csv",
+    )
+    storage.create_job(
+        job_id="queued-refresh",
+        job_type="refresh",
+        dataset_id="spy",
+        status="queued",
+        output_path="data/generated/spy.csv",
+    )
+    monkeypatch.setattr(
+        "finance_cli.api.service.build_matrix_jobs",
+        lambda: [MatrixJob(months=2, indicator="sma", rule="indicator > open")],
+    )
+    monkeypatch.setattr(
+        "finance_cli.refresh.fetch_full_history_monthly_source",
+        lambda symbol: monthly_frame(row_count=5),
+    )
+
+    with TestClient(create_app(settings)) as restarted_client:
+        recovered = wait_for_job(restarted_client, "queued-matrix", timeout_seconds=1.0)
+        recovered_refresh = wait_for_job(restarted_client, "queued-refresh", timeout_seconds=1.0)
+        interrupted = restarted_client.get("/jobs/running-refresh").json()
+
+    assert recovered["status"] == "success"
+    assert recovered_refresh["status"] == "success"
+    assert interrupted["status"] == "error"
+    assert interrupted["error"] == (
+        "Job was interrupted by an API restart and was not retried to avoid duplicate side effects."
+    )
+
+
+def test_job_execution_claim_prevents_duplicate_matrix_work(monkeypatch, tmp_path: Path) -> None:
+    from finance_cli.api.service import ApiContext, _run_matrix_job
+    from finance_cli.api.settings import ApiSettings
+    from finance_cli.api.storage import SqliteStateStore
+    from finance_cli.api.worker import JobWorker
+
+    settings = ApiSettings(
+        base_dir=tmp_path,
+        database_path=tmp_path / "state" / "finance_api.db",
+    )
+    write_dataset(settings.base_dir, "spy", symbol="SPY")
+    storage = SqliteStateStore(settings.database_path)
+    storage.initialize()
+    storage.create_job(
+        job_id="matrix-once",
+        job_type="matrix",
+        dataset_id=None,
+        status="queued",
+        output_path="output/matrix/matrix-once/manifest.csv",
+    )
+    context = ApiContext(settings=settings, storage=storage, worker=JobWorker())
+    execution_count = 0
+
+    def fake_run_matrix_jobs(datasets, jobs, output_dir):
+        nonlocal execution_count
+        execution_count += 1
+        return []
+
+    def fake_write_matrix_manifest(records, output_dir: Path) -> Path:
+        manifest_path = output_dir / "manifest.csv"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("dataset_id,status\n", encoding="utf-8")
+        return manifest_path
+
+    monkeypatch.setattr("finance_cli.api.service.run_matrix_jobs", fake_run_matrix_jobs)
+    monkeypatch.setattr("finance_cli.api.service.write_matrix_manifest", fake_write_matrix_manifest)
+
+    _run_matrix_job(context, "matrix-once")
+    _run_matrix_job(context, "matrix-once")
+
+    assert execution_count == 1

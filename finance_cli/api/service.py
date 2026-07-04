@@ -40,6 +40,11 @@ from .storage import SqliteStateStore
 from .worker import JobWorker
 
 
+RESTART_INTERRUPTION_ERROR = (
+    "Job was interrupted by an API restart and was not retried to avoid duplicate side effects."
+)
+
+
 @dataclass(frozen=True)
 class ApiContext:
     """Shared application context for route handlers and worker jobs."""
@@ -222,6 +227,43 @@ def queue_matrix_job(context: ApiContext) -> JobResponse:
     return get_job(context, job_id)
 
 
+def recover_active_jobs(context: ApiContext) -> None:
+    active_jobs = context.storage.list_active_jobs()
+
+    for row in active_jobs:
+        if row["status"] == "running":
+            context.storage.update_job(
+                str(row["job_id"]),
+                status="error",
+                output_path=str(row["output_path"]),
+                error_text=RESTART_INTERRUPTION_ERROR,
+            )
+
+    for row in active_jobs:
+        if row["status"] != "queued":
+            continue
+        job_id = str(row["job_id"])
+        job_type = str(row["job_type"])
+        dataset_id = None if row["dataset_id"] is None else str(row["dataset_id"])
+        if job_type == "matrix":
+            context.worker.submit(lambda job_id=job_id: _run_matrix_job(context, job_id))
+        elif job_type == "refresh" and dataset_id is not None:
+            context.worker.submit(
+                lambda job_id=job_id, dataset_id=dataset_id: _run_refresh_job(
+                    context,
+                    job_id,
+                    dataset_id,
+                )
+            )
+        else:
+            context.storage.update_job(
+                job_id,
+                status="error",
+                output_path=str(row["output_path"]),
+                error_text=f"Queued job cannot be recovered: unsupported job type '{job_type}'.",
+            )
+
+
 def get_job(context: ApiContext, job_id: str) -> JobResponse:
     row = context.storage.get_job(job_id)
     if row is None:
@@ -297,9 +339,10 @@ def _infer_source_type(dataset: DatasetConfig, existing_row: dict[str, object] |
 
 
 def _run_refresh_job(context: ApiContext, job_id: str, dataset_id: str) -> None:
+    if not context.storage.claim_queued_job(job_id):
+        return
     row = context.storage.get_job(job_id)
     output_path = "" if row is None else str(row["output_path"])
-    context.storage.update_job(job_id, status="running", output_path=output_path, error_text="")
     try:
         dataset = _require_dataset(context, dataset_id)
         summary = refresh_selected_source(
@@ -331,9 +374,10 @@ def _run_refresh_job(context: ApiContext, job_id: str, dataset_id: str) -> None:
 
 
 def _run_matrix_job(context: ApiContext, job_id: str) -> None:
+    if not context.storage.claim_queued_job(job_id):
+        return
     row = context.storage.get_job(job_id)
     output_path = "" if row is None else str(row["output_path"])
-    context.storage.update_job(job_id, status="running", output_path=output_path, error_text="")
     try:
         datasets = discover_datasets(context.settings.base_dir)
         if not datasets:

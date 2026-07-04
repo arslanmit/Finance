@@ -10,7 +10,7 @@ from .routes_datasets import router as datasets_router
 from .routes_health import router as health_router
 from .routes_jobs import router as jobs_router
 from .routes_runs import router as runs_router
-from .service import ApiContext
+from .service import ApiContext, recover_active_jobs
 from .settings import ApiSettings
 from .storage import SqliteStateStore
 from .worker import JobWorker
@@ -24,12 +24,14 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         storage.initialize()
-        worker.start()
-        app.state.api_context = ApiContext(
+        context = ApiContext(
             settings=effective_settings,
             storage=storage,
             worker=worker,
         )
+        app.state.api_context = context
+        recover_active_jobs(context)
+        worker.start()
         try:
             yield
         finally:

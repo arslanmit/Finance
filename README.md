@@ -93,6 +93,10 @@ Default API state:
 - Analysis artifacts: `output/`
 - Refresh backups and uploads: `tmp/`
 
+On API startup, persisted `queued` refresh and matrix jobs are submitted again. Jobs left
+`running` by an interrupted process are marked `error` instead of being repeated, which
+avoids duplicating work whose side effects may already have completed.
+
 ## Docker and API
 
 ### Start the API with Docker

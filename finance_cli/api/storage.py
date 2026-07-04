@@ -215,6 +215,28 @@ class SqliteStateStore:
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         return self._fetchone("SELECT * FROM jobs WHERE job_id = ?", (job_id,))
 
+    def list_active_jobs(self) -> list[dict[str, Any]]:
+        return self._fetchall(
+            """
+            SELECT * FROM jobs
+            WHERE status IN ('queued', 'running')
+            ORDER BY created_at, job_id
+            """
+        )
+
+    def claim_queued_job(self, job_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs
+                SET status = 'running', error_text = '', updated_at = ?
+                WHERE job_id = ? AND status = 'queued'
+                """,
+                (utc_now_iso(), job_id),
+            )
+            connection.commit()
+        return cursor.rowcount == 1
+
     def upsert_artifact(
         self,
         *,
