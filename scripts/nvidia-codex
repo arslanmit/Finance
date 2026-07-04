@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+ENV_FILE="$PROJECT_ROOT/.env"
+
+if [ ! -f "$ENV_FILE" ]; then
+    echo "NVIDIA Codex requires $ENV_FILE with NVIDIA_API_KEY set." >&2
+    exit 1
+fi
+
+set -a
+. "$ENV_FILE"
+set +a
+
+if [ -z "${NVIDIA_API_KEY:-}" ]; then
+    echo "NVIDIA_API_KEY is not set in $ENV_FILE." >&2
+    exit 1
+fi
+
+if ! command -v codex >/dev/null 2>&1; then
+    echo "The codex CLI is not installed or not available on PATH." >&2
+    exit 1
+fi
+
+cd "$PROJECT_ROOT"
+exec codex \
+    -c 'model="nvidia/nemotron-3-super-120b-a12b"' \
+    -c 'model_provider="nvidia"' \
+    -c 'model_providers.nvidia.name="NVIDIA NIM"' \
+    -c 'model_providers.nvidia.base_url="https://integrate.api.nvidia.com/v1"' \
+    -c 'model_providers.nvidia.env_key="NVIDIA_API_KEY"' \
+    "$@"

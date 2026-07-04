@@ -566,3 +566,21 @@ python3 dynamic_range_average.py run --help
 python3 dynamic_range_average.py matrix --help
 python3 dynamic_range_average.py datasets --help
 ```
+
+### NVIDIA Codex agent
+
+Put `NVIDIA_API_KEY` in the ignored `.env` file, then start Codex with the
+repository's NVIDIA NIM provider and model configuration:
+
+```bash
+./scripts/nvidia-codex
+```
+
+Arguments are forwarded to Codex, so non-interactive commands work the same way:
+
+```bash
+./scripts/nvidia-codex exec "Review the API job recovery implementation"
+```
+
+The launcher passes the endpoint, provider, and model identifier as Codex CLI
+configuration overrides. It reads the API key only from the ignored `.env` file.
