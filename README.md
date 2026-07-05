@@ -576,11 +576,19 @@ repository's NVIDIA NIM provider and model configuration:
 ./scripts/nvidia-codex
 ```
 
+The first run uses `npm` to install a repo-local, pinned Codex `0.80.0` binary
+under `.cache/nvidia-codex/`. This version is required because NVIDIA NIM's
+current Responses implementation rejects Codex tool-output follow-ups, while
+its Chat Completions flow works. Current Codex releases require the Responses
+API. The launcher uses an isolated Codex home, so global MCP and plugin
+configuration does not affect NVIDIA sessions.
+
 Arguments are forwarded to Codex, so non-interactive commands work the same way:
 
 ```bash
 ./scripts/nvidia-codex exec "Review the API job recovery implementation"
 ```
 
-The launcher passes the endpoint, provider, and model identifier as Codex CLI
-configuration overrides. It reads the API key only from the ignored `.env` file.
+The launcher passes the endpoint, provider, model identifier, workspace-write
+sandbox, and Chat wire format as Codex CLI configuration overrides. It reads the
+API key only from the ignored `.env` file.

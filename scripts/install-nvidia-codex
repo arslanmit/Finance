@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+TARGET_PATH=${1:?"Usage: install-nvidia-codex TARGET_PATH [VERSION]"}
+VERSION=${2:-0.80.0}
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/nvidia-codex.XXXXXX")
+
+cleanup() {
+    rm -rf -- "$TEMP_DIR"
+}
+trap cleanup EXIT HUP INT TERM
+
+if [ -n "${NVIDIA_CODEX_PLATFORM_DIR:-}" ]; then
+    PLATFORM_DIR="$NVIDIA_CODEX_PLATFORM_DIR"
+else
+    OS_NAME=$(uname -s)
+    ARCH_NAME=$(uname -m)
+    case "$OS_NAME:$ARCH_NAME" in
+        Darwin:arm64) PLATFORM_DIR="aarch64-apple-darwin" ;;
+        Darwin:x86_64) PLATFORM_DIR="x86_64-apple-darwin" ;;
+        Linux:arm64|Linux:aarch64) PLATFORM_DIR="aarch64-unknown-linux-musl" ;;
+        Linux:x86_64) PLATFORM_DIR="x86_64-unknown-linux-musl" ;;
+        *)
+            echo "Unsupported platform for NVIDIA Codex: $OS_NAME $ARCH_NAME" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+if [ -n "${NVIDIA_CODEX_PACKAGE:-}" ]; then
+    PACKAGE_PATH="$NVIDIA_CODEX_PACKAGE"
+    if [ ! -f "$PACKAGE_PATH" ]; then
+        echo "NVIDIA_CODEX_PACKAGE does not exist: $PACKAGE_PATH" >&2
+        exit 1
+    fi
+else
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "npm is required to install the NVIDIA-compatible Codex CLI." >&2
+        exit 1
+    fi
+    PACKAGE_NAME=$(cd "$TEMP_DIR" && npm pack --silent "@openai/codex@$VERSION")
+    PACKAGE_PATH="$TEMP_DIR/$PACKAGE_NAME"
+fi
+
+tar -xf "$PACKAGE_PATH" -C "$TEMP_DIR"
+SOURCE_PATH="$TEMP_DIR/package/vendor/$PLATFORM_DIR/codex/codex"
+if [ ! -f "$SOURCE_PATH" ]; then
+    echo "Codex package does not contain a binary for $PLATFORM_DIR." >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname -- "$TARGET_PATH")"
+cp "$SOURCE_PATH" "$TARGET_PATH"
+chmod +x "$TARGET_PATH"
+
+case "$PLATFORM_DIR" in
+    *-apple-darwin)
+        if ! command -v codesign >/dev/null 2>&1; then
+            echo "codesign is required to prepare Codex $VERSION on macOS." >&2
+            exit 1
+        fi
+        codesign --force --sign - "$TARGET_PATH" >/dev/null
+        ;;
+esac
+
+printf 'Installed NVIDIA-compatible Codex %s at %s\n' "$VERSION" "$TARGET_PATH"

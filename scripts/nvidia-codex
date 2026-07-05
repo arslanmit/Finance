@@ -4,6 +4,8 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ENV_FILE="$PROJECT_ROOT/.env"
+CODEX_VERSION="0.80.0"
+CACHE_DIR="${NVIDIA_CODEX_CACHE_DIR:-$PROJECT_ROOT/.cache/nvidia-codex}"
 
 if [ ! -f "$ENV_FILE" ]; then
     echo "NVIDIA Codex requires $ENV_FILE with NVIDIA_API_KEY set." >&2
@@ -19,16 +21,32 @@ if [ -z "${NVIDIA_API_KEY:-}" ]; then
     exit 1
 fi
 
-if ! command -v codex >/dev/null 2>&1; then
-    echo "The codex CLI is not installed or not available on PATH." >&2
+if [ -n "${NVIDIA_CODEX_BIN:-}" ]; then
+    CODEX_BIN="$NVIDIA_CODEX_BIN"
+else
+    CODEX_BIN="$CACHE_DIR/$CODEX_VERSION/codex"
+    if [ ! -x "$CODEX_BIN" ]; then
+        "$SCRIPT_DIR/install-nvidia-codex" "$CODEX_BIN" "$CODEX_VERSION"
+    fi
+fi
+
+if [ ! -x "$CODEX_BIN" ]; then
+    echo "NVIDIA Codex executable is missing or not executable: $CODEX_BIN" >&2
     exit 1
 fi
 
+CODEX_HOME="${NVIDIA_CODEX_HOME:-$CACHE_DIR/home}"
+export CODEX_HOME
+mkdir -p "$CODEX_HOME"
+
 cd "$PROJECT_ROOT"
-exec codex \
+exec "$CODEX_BIN" \
     -c 'model="nvidia/nemotron-3-super-120b-a12b"' \
     -c 'model_provider="nvidia"' \
     -c 'model_providers.nvidia.name="NVIDIA NIM"' \
     -c 'model_providers.nvidia.base_url="https://integrate.api.nvidia.com/v1"' \
     -c 'model_providers.nvidia.env_key="NVIDIA_API_KEY"' \
+    -c 'model_providers.nvidia.wire_api="chat"' \
+    -c 'sandbox_mode="workspace-write"' \
+    -c 'approval_policy="on-request"' \
     "$@"
