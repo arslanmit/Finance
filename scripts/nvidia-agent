@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+ENV_FILE="$PROJECT_ROOT/.env"
+OPENCODE_VERSION="1.17.13"
+
+if [ ! -f "$ENV_FILE" ]; then
+    echo "NVIDIA agent requires $ENV_FILE with NVIDIA_API_KEY set." >&2
+    exit 1
+fi
+
+set -a
+. "$ENV_FILE"
+set +a
+
+if [ -z "${NVIDIA_API_KEY:-}" ]; then
+    echo "NVIDIA_API_KEY is not set in $ENV_FILE." >&2
+    exit 1
+fi
+
+cd "$PROJECT_ROOT"
+
+if [ -n "${NVIDIA_OPENCODE_BIN:-}" ]; then
+    if [ ! -x "$NVIDIA_OPENCODE_BIN" ]; then
+        echo "NVIDIA_OPENCODE_BIN is missing or not executable: $NVIDIA_OPENCODE_BIN" >&2
+        exit 1
+    fi
+    exec "$NVIDIA_OPENCODE_BIN" "$@"
+fi
+
+if ! command -v npx >/dev/null 2>&1; then
+    echo "npx is required to run opencode-ai@$OPENCODE_VERSION." >&2
+    exit 1
+fi
+
+exec npx -y "opencode-ai@$OPENCODE_VERSION" "$@"

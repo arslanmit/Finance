@@ -1,0 +1,61 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "nvidia-nim/nvidia/nemotron-3-super-120b-a12b",
+  "small_model": "nvidia-nim/nvidia/nemotron-3-super-120b-a12b",
+  "provider": {
+    "nvidia-nim": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "NVIDIA NIM",
+      "options": {
+        "baseURL": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "{env:NVIDIA_API_KEY}",
+        "timeout": 600000,
+        "chunkTimeout": 120000
+      },
+      "models": {
+        "nvidia/nemotron-3-super-120b-a12b": {
+          "name": "NVIDIA Nemotron 3 Super 120B",
+          "options": {
+            "chat_template_kwargs": {
+              "force_nonempty_content": true
+            }
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 32768
+          }
+        }
+      }
+    }
+  },
+  "agent": {
+    "build": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "max_tokens": 32000
+    },
+    "plan": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "max_tokens": 32000
+    }
+  },
+  "permission": {
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "edit": "ask",
+    "bash": {
+      "*": "ask",
+      "pwd": "allow",
+      "python3 dynamic_range_average.py run --dataset spy --months 6": "allow",
+      "rm *": "deny",
+      "git push *": "deny",
+      "git reset --hard*": "deny"
+    },
+    "external_directory": "deny",
+    "webfetch": "deny",
+    "websearch": "deny"
+  }
+}

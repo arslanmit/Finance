@@ -1,0 +1,103 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+LAUNCHER=${NVIDIA_AGENT_LAUNCHER:-$SCRIPT_DIR/nvidia-agent}
+SMOKE_DIR=${NVIDIA_AGENT_SMOKE_DIR:-$PROJECT_ROOT/.cache/nvidia-agent-smoke}
+MODEL="nvidia-nim/nvidia/nemotron-3-super-120b-a12b"
+EDIT_TARGET="$PROJECT_ROOT/tmp/nvidia-agent-smoke.txt"
+
+mkdir -p "$SMOKE_DIR" "$PROJECT_ROOT/tmp"
+rm -f -- "$EDIT_TARGET"
+
+cleanup() {
+    rm -f -- "$EDIT_TARGET"
+}
+trap cleanup EXIT HUP INT TERM
+
+run_case() {
+    name=$1
+    marker=$2
+    minimum_tool_calls=$3
+    prompt=$4
+    approval_mode=${5:-normal}
+    log="$SMOKE_DIR/$name.jsonl"
+
+    if [ "$approval_mode" = "auto" ]; then
+        if ! "$LAUNCHER" run --pure --auto --format json --model "$MODEL" "$prompt" >"$log"; then
+            cat "$log"
+            echo "NVIDIA smoke case failed: $name" >&2
+            return 1
+        fi
+    else
+        if ! "$LAUNCHER" run --pure --format json --model "$MODEL" "$prompt" >"$log"; then
+            cat "$log"
+            echo "NVIDIA smoke case failed: $name" >&2
+            return 1
+        fi
+    fi
+
+    cat "$log"
+    if ! grep -Fq "$marker" "$log"; then
+        echo "NVIDIA smoke marker missing for $name: $marker" >&2
+        return 1
+    fi
+
+    tool_calls=$(grep -Fc '"type":"tool_use"' "$log" || true)
+    if [ "$tool_calls" -lt "$minimum_tool_calls" ]; then
+        echo "NVIDIA smoke expected $minimum_tool_calls structured tool calls for $name, got $tool_calls" >&2
+        return 1
+    fi
+}
+
+cd "$PROJECT_ROOT"
+
+run_case \
+    text \
+    NVIDIA_OK \
+    0 \
+    "Reply with exactly NVIDIA_OK and do not use tools."
+
+run_case \
+    pwd \
+    PWD_OK \
+    1 \
+    "Use the bash tool to run exactly pwd. After the tool result, reply with PWD_OK followed by the absolute path."
+
+run_case \
+    multi_turn \
+    TOOL_LOOP_OK \
+    2 \
+    "First use the bash tool to run exactly pwd. Then use the read tool to read README.md. After both tool results, reply with exactly TOOL_LOOP_OK."
+
+run_case \
+    finance \
+    output/spy_processed.csv \
+    1 \
+    "Use the bash tool to run exactly: python3 dynamic_range_average.py run --dataset spy --months 6. After it succeeds, reply with FINANCE_OK and the output path output/spy_processed.csv."
+
+run_case \
+    edit \
+    EDIT_OK \
+    1 \
+    "Use an editing tool to create tmp/nvidia-agent-smoke.txt containing exactly NVIDIA_EDIT_OK followed by a newline. Verify the file, then reply exactly EDIT_OK." \
+    auto
+
+if [ "$(cat "$EDIT_TARGET" 2>/dev/null || true)" != "NVIDIA_EDIT_OK" ]; then
+    echo "NVIDIA smoke edit did not create the expected file content." >&2
+    exit 1
+fi
+
+run_case \
+    push_denied \
+    PUSH_DENIED_OK \
+    1 \
+    "Attempt to use the bash tool to run exactly git push origin HEAD. Do not try an alternative. When permission denies it, reply exactly PUSH_DENIED_OK."
+
+if ! grep -Eqi 'denied|permission' "$SMOKE_DIR/push_denied.jsonl"; then
+    echo "NVIDIA smoke did not observe an explicit git push denial." >&2
+    exit 1
+fi
+
+echo "NVIDIA agent smoke passed. Logs: $SMOKE_DIR"
