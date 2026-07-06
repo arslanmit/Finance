@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "opencode.json"
 LAUNCHER_PATH = ROOT / "scripts" / "nvidia-agent"
 SMOKE_PATH = ROOT / "scripts" / "smoke-nvidia-agent"
+LEGACY_LAUNCHER_PATH = ROOT / "scripts" / "nvidia-codex"
+README_PATH = ROOT / "README.md"
 MODEL_ID = "nvidia/nemotron-3-super-120b-a12b"
 MODEL_SELECTOR = f"nvidia-nim/{MODEL_ID}"
 
@@ -158,6 +160,19 @@ def test_nvidia_agent_smoke_script_covers_real_tool_loop_contract() -> None:
     assert "git push origin HEAD" in script
     assert "NVIDIA_AGENT_LAUNCHER" in script
     assert "NVIDIA_AGENT_SMOKE_DIR" in script
+
+
+def test_readme_documents_nvidia_agent_and_legacy_launcher_warns() -> None:
+    readme = README_PATH.read_text(encoding="utf-8")
+    assert "./scripts/nvidia-agent" in readme
+    assert './scripts/nvidia-agent run "' in readme
+    assert "./scripts/smoke-nvidia-agent" in readme
+    assert "NVIDIA_API_KEY" in readme
+    assert "opencode-ai@1.17.13" in readme
+
+    legacy_launcher = LEGACY_LAUNCHER_PATH.read_text(encoding="utf-8")
+    assert "deprecated" in legacy_launcher.lower()
+    assert "scripts/nvidia-agent" in legacy_launcher
 
 
 def _copy_launcher_project(tmp_path: Path) -> Path:

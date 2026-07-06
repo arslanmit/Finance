@@ -567,28 +567,40 @@ python3 dynamic_range_average.py matrix --help
 python3 dynamic_range_average.py datasets --help
 ```
 
-### NVIDIA Codex agent
+### NVIDIA coding agent
 
-Put `NVIDIA_API_KEY` in the ignored `.env` file, then start Codex with the
-repository's NVIDIA NIM provider and model configuration:
-
-```bash
-./scripts/nvidia-codex
-```
-
-The first run uses `npm` to install a repo-local, pinned Codex `0.80.0` binary
-under `.cache/nvidia-codex/`. This version is required because NVIDIA NIM's
-current Responses implementation rejects Codex tool-output follow-ups, while
-its Chat Completions flow works. Current Codex releases require the Responses
-API. The launcher uses an isolated Codex home, so global MCP and plugin
-configuration does not affect NVIDIA sessions.
-
-Arguments are forwarded to Codex, so non-interactive commands work the same way:
+Put `NVIDIA_API_KEY` in the ignored `.env` file, then start the supported
+OpenCode agent:
 
 ```bash
-./scripts/nvidia-codex exec "Review the API job recovery implementation"
+./scripts/nvidia-agent
 ```
 
-The launcher passes the endpoint, provider, model identifier, workspace-write
-sandbox, and Chat wire format as Codex CLI configuration overrides. It reads the
-API key only from the ignored `.env` file.
+The launcher loads the key from `.env`, starts from the repository root, and
+uses pinned `opencode-ai@1.17.13` with the NVIDIA NIM Chat Completions provider
+defined in `opencode.json`. Read-only repository tools are allowed. General
+shell commands and edits ask for approval; destructive commands, `git push`,
+external-directory access, and web tools are denied.
+
+For a non-interactive task:
+
+```bash
+./scripts/nvidia-agent run "Review the API job recovery implementation"
+```
+
+Run the explicit live acceptance suite after changing the provider, model, or
+permissions:
+
+```bash
+./scripts/smoke-nvidia-agent
+```
+
+The smoke suite calls the real NVIDIA endpoint and checks text generation,
+structured tool calls, a multi-step tool loop, the six-month SPY workflow, a
+temporary edit, and denial of `git push`. Logs go to
+`.cache/nvidia-agent-smoke/`.
+
+The older `./scripts/nvidia-codex` launcher remains available only as a
+deprecated compatibility fallback. It pins Codex `0.80.0`; OpenCode is the
+supported path because current Codex and NVIDIA Responses tool-result formats
+are incompatible.

@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+echo "Warning: scripts/nvidia-codex is deprecated; use scripts/nvidia-agent for reliable NVIDIA tool calling." >&2
+
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ENV_FILE="$PROJECT_ROOT/.env"
